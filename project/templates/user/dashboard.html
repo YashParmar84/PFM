@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Personal Finance Management{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt"></i> Dashboard
+        </h1>
+    </div>
+</div>
+
+<!-- Financial Overview Cards -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Total Income</h5>
+                        <h3 class="mb-0">${{ total_income|floatformat:2 }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-arrow-up fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Total Expenses</h5>
+                        <h3 class="mb-0">${{ total_expense|floatformat:2 }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-arrow-down fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card {% if balance >= 0 %}bg-primary{% else %}bg-warning{% endif %} text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Balance</h5>
+                        <h3 class="mb-0">${{ balance|floatformat:2 }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-balance-scale fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Recent Transactions -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> Recent Transactions
+                </h5>
+                <a href="{% url 'transaction_list' %}" class="btn btn-sm btn-outline-primary">
+                    View All
+                </a>
+            </div>
+            <div class="card-body">
+                {% if recent_transactions %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Category</th>
+                                    <th>Description</th>
+                                    <th>Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for transaction in recent_transactions %}
+                                <tr>
+                                    <td>{{ transaction.date }}</td>
+                                    <td>
+                                        <span class="badge {% if transaction.transaction_type == 'income' %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ transaction.get_transaction_type_display }}
+                                        </span>
+                                    </td>
+                                    <td>{{ transaction.get_category_display }}</td>
+                                    <td>{{ transaction.description|truncatechars:30 }}</td>
+                                    <td class="{% if transaction.transaction_type == 'income' %}text-success{% else %}text-danger{% endif %}">
+                                        ${{ transaction.amount }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-muted">No transactions found. <a href="{% url 'add_transaction' %}">Add your first transaction</a></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Budget Overview -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-pie"></i> Budget Overview
+                </h5>
+                <a href="{% url 'budget_management' %}" class="btn btn-sm btn-outline-primary">
+                    Manage
+                </a>
+            </div>
+            <div class="card-body">
+                {% if budgets %}
+                    {% for budget in budgets %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>{{ budget.get_category_display }}</span>
+                            <span>${{ budget.amount }}</span>
+                        </div>
+                        <div class="progress mt-1" style="height: 5px;">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No budgets set. <a href="{% url 'budget_management' %}">Create your first budget</a></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-bolt"></i> Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <a href="{% url 'add_transaction' %}" class="btn btn-success btn-lg w-100 mb-2">
+                            <i class="fas fa-plus"></i> Add Transaction
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'transaction_list' %}" class="btn btn-primary btn-lg w-100 mb-2">
+                            <i class="fas fa-list"></i> View Transactions
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'budget_management' %}" class="btn btn-info btn-lg w-100 mb-2">
+                            <i class="fas fa-chart-pie"></i> Manage Budget
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100 mb-2">
+                            <i class="fas fa-chart-line"></i> View Expenses
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
