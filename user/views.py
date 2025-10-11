@@ -12,7 +12,7 @@ from django.utils import timezone
 def home(request):
     """Home page view"""
     if request.user.is_authenticated:
-        return redirect('dashboard')
+        return redirect('user:dashboard')
     return render(request, 'user/home.html')
 
 
@@ -38,7 +38,11 @@ def dashboard(request):
     recent_transactions = Transaction.objects.filter(user=user).order_by('-date')[:10]
     
     # Get budgets for current month
-    budgets = Budget.objects.filter(user=user, month=current_month)
+    budgets = Budget.objects.filter(
+        user=user,
+        month__year=current_month.year,
+        month__month=current_month.month
+    )
     
     context = {
         'total_income': total_income,
@@ -71,7 +75,7 @@ def add_transaction(request):
                 date=date_str
             )
             messages.success(request, 'Transaction added successfully!')
-            return redirect('dashboard')
+            return redirect('user:dashboard')
         except Exception as e:
             messages.error(request, f'Error adding transaction: {str(e)}')
     
@@ -108,32 +112,40 @@ def budget_management(request):
     if request.method == 'POST':
         category = request.POST.get('category')
         amount = request.POST.get('amount')
-        month = request.POST.get('month')
-        
+        month_str = request.POST.get('month')  # This comes as "YYYY-MM" format
+
         try:
+            # Convert month string to date object for storage
+            from datetime import datetime
+            month_date = datetime.strptime(month_str + "-01", "%Y-%m-%d").date()
+
             budget, created = Budget.objects.get_or_create(
                 user=request.user,
                 category=category,
-                month=month,
+                month=month_date,
                 defaults={'amount': amount}
             )
             if not created:
                 budget.amount = amount
                 budget.save()
-            
+
             messages.success(request, 'Budget updated successfully!')
         except Exception as e:
             messages.error(request, f'Error updating budget: {str(e)}')
-    
-    # Get current month budgets
-    current_month = timezone.now().date().replace(day=1)
-    budgets = Budget.objects.filter(user=request.user, month=current_month)
-    
+
+    # Get current month budgets - filter by month string format
+    current_month_str = timezone.now().strftime('%Y-%m')
+    budgets = Budget.objects.filter(
+        user=request.user,
+        month__year=timezone.now().year,
+        month__month=timezone.now().month
+    )
+
     context = {
         'budgets': budgets,
         'categories': Transaction.CATEGORIES,
     }
-    
+
     return render(request, 'user/budget_management.html', context)
 
 
@@ -153,7 +165,7 @@ def register(request):
             user = User.objects.create_user(username=username, email=email, password=password)
             UserProfile.objects.create(user=user)
             messages.success(request, 'Account created successfully! Please log in.')
-            return redirect('login')
+            return redirect('user:login')
         except Exception as e:
             messages.error(request, f'Error creating account: {str(e)}')
     
@@ -170,7 +182,7 @@ def user_login(request):
         if user:
             login(request, user)
             messages.success(request, 'Logged in successfully!')
-            return redirect('dashboard')
+            return redirect('user:dashboard')
         else:
             messages.error(request, 'Invalid username or password!')
     
@@ -182,4 +194,4 @@ def user_logout(request):
     """User logout"""
     logout(request)
     messages.success(request, 'Logged out successfully!')
-    return redirect('home')
+    return redirect('user:home')

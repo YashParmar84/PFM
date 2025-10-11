@@ -68,7 +68,7 @@
                 <h5 class="mb-0">
                     <i class="fas fa-list"></i> Recent Transactions
                 </h5>
-                <a href="{% url 'transaction_list' %}" class="btn btn-sm btn-outline-primary">
+                <a href="{% url 'user:transaction_list' %}" class="btn btn-sm btn-outline-primary">
                     View All
                 </a>
             </div>
@@ -105,7 +105,7 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="text-muted">No transactions found. <a href="{% url 'add_transaction' %}">Add your first transaction</a></p>
+                    <p class="text-muted">No transactions found. <a href="{% url 'user:add_transaction' %}">Add your first transaction</a></p>
                 {% endif %}
             </div>
         </div>
@@ -118,7 +118,7 @@
                 <h5 class="mb-0">
                     <i class="fas fa-chart-pie"></i> Budget Overview
                 </h5>
-                <a href="{% url 'budget_management' %}" class="btn btn-sm btn-outline-primary">
+                <a href="{% url 'user:budget_management' %}" class="btn btn-sm btn-outline-primary">
                     Manage
                 </a>
             </div>
@@ -136,7 +136,7 @@
                     </div>
                     {% endfor %}
                 {% else %}
-                    <p class="text-muted">No budgets set. <a href="{% url 'budget_management' %}">Create your first budget</a></p>
+                    <p class="text-muted">No budgets set. <a href="{% url 'user:budget_management' %}">Create your first budget</a></p>
                 {% endif %}
             </div>
         </div>
@@ -155,22 +155,22 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-3">
-                        <a href="{% url 'add_transaction' %}" class="btn btn-success btn-lg w-100 mb-2">
+                        <a href="{% url 'user:add_transaction' %}" class="btn btn-success btn-lg w-100 mb-2">
                             <i class="fas fa-plus"></i> Add Transaction
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'transaction_list' %}" class="btn btn-primary btn-lg w-100 mb-2">
+                        <a href="{% url 'user:transaction_list' %}" class="btn btn-primary btn-lg w-100 mb-2">
                             <i class="fas fa-list"></i> View Transactions
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'budget_management' %}" class="btn btn-info btn-lg w-100 mb-2">
+                        <a href="{% url 'user:budget_management' %}" class="btn btn-info btn-lg w-100 mb-2">
                             <i class="fas fa-chart-pie"></i> Manage Budget
                         </a>
                     </div>
                     <div class="col-md-3">
-                        <a href="{% url 'transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100 mb-2">
+                        <a href="{% url 'user:transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100 mb-2">
                             <i class="fas fa-chart-line"></i> View Expenses
                         </a>
                     </div>

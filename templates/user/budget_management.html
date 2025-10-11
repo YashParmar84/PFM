@@ -114,14 +114,19 @@
 </div>
 
 <script>
-// Set current month as default
-document.getElementById('month').valueAsDate = new Date();
+// Set current month as default (YYYY-MM format for month input)
+document.addEventListener('DOMContentLoaded', function() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('month').value = `${year}-${month}`;
+});
 
 function editBudget(id, category, amount, month) {
     document.getElementById('category').value = category;
     document.getElementById('amount').value = amount;
     document.getElementById('month').value = month;
-    
+
     // Scroll to form
     document.querySelector('.card').scrollIntoView({ behavior: 'smooth' });
 }
