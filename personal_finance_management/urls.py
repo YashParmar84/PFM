@@ -19,9 +19,10 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
+from user.admin import admin_site
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('admin/', admin_site.urls),  # Use custom admin site as main admin
     path('user/', include(('user.urls', 'user'), namespace='user')),
     path('', RedirectView.as_view(url='/user/', permanent=True)),
 ]

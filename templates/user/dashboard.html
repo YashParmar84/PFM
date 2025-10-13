@@ -19,7 +19,7 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">Total Income</h5>
-                        <h3 class="mb-0">${{ total_income|floatformat:2 }}</h3>
+                        <h3 class="mb-0">₹{{ total_income|floatformat:2 }}</h3>
                     </div>
                     <div class="align-self-center">
                         <i class="fas fa-arrow-up fa-2x"></i>
@@ -34,7 +34,7 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">Total Expenses</h5>
-                        <h3 class="mb-0">${{ total_expense|floatformat:2 }}</h3>
+                        <h3 class="mb-0">₹{{ total_expense|floatformat:2 }}</h3>
                     </div>
                     <div class="align-self-center">
                         <i class="fas fa-arrow-down fa-2x"></i>
@@ -49,7 +49,7 @@
                 <div class="d-flex justify-content-between">
                     <div>
                         <h5 class="card-title">Balance</h5>
-                        <h3 class="mb-0">${{ balance|floatformat:2 }}</h3>
+                        <h3 class="mb-0">₹{{ balance|floatformat:2 }}</h3>
                     </div>
                     <div class="align-self-center">
                         <i class="fas fa-balance-scale fa-2x"></i>
@@ -97,7 +97,7 @@
                                     <td>{{ transaction.get_category_display }}</td>
                                     <td>{{ transaction.description|truncatechars:30 }}</td>
                                     <td class="{% if transaction.transaction_type == 'income' %}text-success{% else %}text-danger{% endif %}">
-                                        ${{ transaction.amount }}
+                                        ₹{{ transaction.amount }}
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -126,17 +126,44 @@
                 {% if budgets %}
                     {% for budget in budgets %}
                     <div class="mb-3">
-                        <div class="d-flex justify-content-between">
-                            <span>{{ budget.get_category_display }}</span>
-                            <span>${{ budget.amount }}</span>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-bold">{{ budget.get_category_display }}</span>
+                            <div class="text-end">
+                                <small class="text-muted">₹{{ budget.current_expenses|default:0 }} / ₹{{ budget.amount }}</small>
+                                {% if budget.is_over_budget %}
+                                    <i class="fas fa-exclamation-triangle text-danger ms-1" title="Over Budget"></i>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="progress mt-1" style="height: 5px;">
-                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        <div class="progress mt-1" style="height: 8px;">
+                            <div class="progress-bar {% if budget.is_over_budget %}bg-danger{% elif budget.usage_percentage > 80 %}bg-warning{% else %}bg-success{% endif %}"
+                                 role="progressbar"
+                                 style="width: {{ budget.usage_percentage }}%">
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <small class="text-muted">
+                                {% if budget.is_over_budget %}
+                                    Over by ₹{{ budget.over_budget_amount|floatformat:2 }}
+                                {% else %}
+                                    ₹{{ budget.remaining_budget|floatformat:2 }} remaining
+                                {% endif %}
+                            </small>
+                            <a href="{% url 'user:budget_management' %}?edit={{ budget.category }}&month={{ budget.month|date:'Y-m' }}"
+                               class="btn btn-sm btn-outline-primary py-0 px-2">
+                                <i class="fas fa-edit"></i> Edit
+                            </a>
                         </div>
                     </div>
                     {% endfor %}
                 {% else %}
-                    <p class="text-muted">No budgets set. <a href="{% url 'user:budget_management' %}">Create your first budget</a></p>
+                    <div class="text-center py-3">
+                        <i class="fas fa-chart-pie fa-2x text-muted mb-2"></i>
+                        <p class="text-muted mb-2">No budgets set</p>
+                        <a href="{% url 'user:budget_management' %}" class="btn btn-primary btn-sm">
+                            Create Your First Budget
+                        </a>
+                    </div>
                 {% endif %}
             </div>
         </div>

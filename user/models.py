@@ -39,7 +39,7 @@ class Transaction(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     category = models.CharField(max_length=20, choices=CATEGORIES)
-    description = models.TextField()
+    description = models.TextField(blank=True)
     date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -58,6 +58,18 @@ class Budget(models.Model):
 
     def __str__(self):
         return f"Budget for {self.category}: {self.amount}"
+
+    @property
+    def get_current_expenses(self):
+        """Get current expenses for this budget's category and month"""
+        from django.db.models import Sum
+        return Transaction.objects.filter(
+            user=self.user,
+            category=self.category,
+            transaction_type='expense',
+            date__year=self.month.year,
+            date__month=self.month.month
+        ).aggregate(total=Sum('amount'))['total'] or 0
 
     class Meta:
         unique_together = ['user', 'category', 'month']

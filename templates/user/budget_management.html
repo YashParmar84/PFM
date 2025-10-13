@@ -81,15 +81,28 @@
                                 <tr>
                                     <th>Category</th>
                                     <th>Budget Amount</th>
+                                    <th>Current Expenses</th>
+                                    <th>Status</th>
                                     <th>Month</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for budget in budgets %}
-                                <tr>
+                                {% with current_expenses=budget.get_current_expenses %}
+                                <tr class="{% if current_expenses > budget.amount %}table-warning{% elif current_expenses > 0 %}table-info{% endif %}">
                                     <td>{{ budget.get_category_display }}</td>
-                                    <td>${{ budget.amount }}</td>
+                                    <td>₹{{ budget.amount }}</td>
+                                    <td>₹{{ current_expenses|default:0 }}</td>
+                                    <td>
+                                        {% if current_expenses > budget.amount %}
+                                            <span class="badge bg-danger">Over Budget</span>
+                                        {% elif current_expenses > budget.amount|floatformat:0|add:"-0.1" %}
+                                            <span class="badge bg-warning">Near Limit</span>
+                                        {% else %}
+                                            <span class="badge bg-success">On Track</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ budget.month|date:"F Y" }}</td>
                                     <td>
                                         <button class="btn btn-sm btn-outline-primary" onclick="editBudget('{{ budget.id }}', '{{ budget.category }}', '{{ budget.amount }}', '{{ budget.month|date:"Y-m" }}')">
@@ -97,6 +110,7 @@
                                         </button>
                                     </td>
                                 </tr>
+                                {% endwith %}
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -119,7 +133,20 @@ document.addEventListener('DOMContentLoaded', function() {
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
-    document.getElementById('month').value = `${year}-${month}`;
+
+    // Pre-fill form if data is provided from Django
+    const prefillData = {{ prefill_data|safe }};
+    if (prefillData.category) {
+        document.getElementById('category').value = prefillData.category;
+        document.getElementById('amount').value = prefillData.amount;
+        document.getElementById('month').value = prefillData.month;
+
+        // Scroll to form to show pre-filled data
+        document.querySelector('.card').scrollIntoView({ behavior: 'smooth' });
+    } else {
+        // Set current month if no prefill data
+        document.getElementById('month').value = `${year}-${month}`;
+    }
 });
 
 function editBudget(id, category, amount, month) {
