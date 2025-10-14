@@ -2,6 +2,713 @@
 
 {% block title %}Dashboard - Personal Finance Management{% endblock %}
 
+{% block extra_scripts %}
+<script>
+// Make functions globally accessible
+window.loadBudgetSuggestions = loadBudgetSuggestions;
+window.loadAIInsights = loadAIInsights;
+window.renderSpendingChart = renderSpendingChart;
+window.renderFinancialGoals = renderFinancialGoals;
+window.renderBudgetSuggestions = renderBudgetSuggestions;
+window.applySuggestion = applySuggestion;
+
+// Initialize dashboard when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Load AI insights on page load
+    loadAIInsights();
+});
+
+// AI Insights Functions
+async function loadAIInsights() {
+    const loadingDiv = document.getElementById('ai-loading');
+    const contentDiv = document.getElementById('ai-insights-content');
+
+    loadingDiv.style.display = 'block';
+    contentDiv.style.display = 'none';
+
+    try {
+        // Load comprehensive chart data for the default chart type
+        await loadMainChart();
+
+        // Load financial goals separately
+        const goalsResponse = await fetch('/user/api/spending-insights/');
+        const goalsData = await goalsResponse.json();
+
+        if (goalsData.error) {
+            throw new Error(goalsData.error);
+        }
+
+        // Render financial goals
+        renderFinancialGoals(goalsData.financial_goals);
+
+        // Show content
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading AI insights:', error);
+        loadingDiv.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                Unable to load AI insights. Please try again later.
+            </div>
+        `;
+    }
+}
+
+async function loadBudgetSuggestions() {
+    const suggestionsDiv = document.getElementById('budget-suggestions');
+
+    // Show loading state
+    suggestionsDiv.innerHTML = `
+        <div class="col-12 text-center py-3">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Generating budget suggestions...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch('/user/api/budget-suggestions/');
+        const data = await response.json();
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        // Check if we have suggestions or a message
+        if (data.suggestions && data.suggestions.length > 0) {
+            renderBudgetSuggestions(data.suggestions);
+        } else {
+            // Show message if no suggestions available
+            suggestionsDiv.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        ${data.message || 'No specific suggestions at this time. Your budget looks well-optimized!'}
+                    </div>
+                </div>
+            `;
+        }
+
+    } catch (error) {
+        console.error('Error loading budget suggestions:', error);
+        suggestionsDiv.innerHTML = `
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Unable to load budget suggestions. Please try again later.
+                    <br><small class="text-muted">Error: ${error.message}</small>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function renderSpendingChart(categoryAnalysis) {
+    const ctx = document.getElementById('spendingChart').getContext('2d');
+
+    // Destroy existing chart if it exists
+    if (window.spendingChart && typeof window.spendingChart.destroy === 'function') {
+        window.spendingChart.destroy();
+    }
+
+    if (!categoryAnalysis || categoryAnalysis.length === 0) {
+        document.getElementById('spendingChart').style.display = 'none';
+        return;
+    }
+
+    // Prepare data for chart
+    const labels = categoryAnalysis.map(item => item.category_display);
+    const data = categoryAnalysis.map(item => parseFloat(item.total_amount));
+    const backgroundColors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+        '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+    ];
+
+    window.spendingChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: backgroundColors.slice(0, labels.length),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                            return `${context.label}: ₹${context.parsed.toLocaleString()} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderFinancialGoals(goals) {
+    const goalsDiv = document.getElementById('goals-progress');
+
+    if (!goals || goals.length === 0) {
+        goalsDiv.innerHTML = `
+            <div class="text-center py-3">
+                <i class="fas fa-target fa-2x text-muted mb-2"></i>
+                <p class="text-muted">No financial goals set</p>
+                <small class="text-muted">Set your first financial goal to track progress</small>
+            </div>
+        `;
+        return;
+    }
+
+    let goalsHtml = '';
+    goals.slice(0, 3).forEach(goal => {  // Show top 3 goals
+        // Ensure progress_percentage is a valid number
+        const progressValue = parseFloat(goal.progress_percentage) || 0;
+        const progressColor = progressValue >= 100 ? 'success' :
+                             progressValue >= 75 ? 'primary' :
+                             progressValue >= 50 ? 'warning' : 'danger';
+
+        goalsHtml += `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="fw-bold">${goal.name || 'Unnamed Goal'}</span>
+                    <small class="text-muted">${progressValue.toFixed(1)}%</small>
+                </div>
+                <div class="progress" style="height: 8px;">
+                    <div class="progress-bar bg-${progressColor}"
+                         role="progressbar"
+                         style="width: ${Math.min(progressValue, 100)}%">
+                    </div>
+                </div>
+                <div class="d-flex justify-content-between mt-1">
+                    <small class="text-muted">₹${parseFloat(goal.current_amount || 0).toLocaleString()} / ₹${parseFloat(goal.target_amount || 0).toLocaleString()}</small>
+                    <small class="text-muted">${goal.priority || 'Medium'}</small>
+                </div>
+            </div>
+        `;
+    });
+
+    goalsDiv.innerHTML = goalsHtml;
+}
+
+function renderBudgetSuggestions(suggestions) {
+    const suggestionsDiv = document.getElementById('budget-suggestions');
+
+    if (!suggestions || suggestions.length === 0) {
+        suggestionsDiv.innerHTML = `
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    No specific suggestions at this time. Your budget looks well-optimized!
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    let suggestionsHtml = '';
+    suggestions.slice(0, 4).forEach((suggestion, index) => {  // Show top 4 suggestions
+        const badgeColor = suggestion.type === 'increase' ? 'warning' :
+                          suggestion.type === 'decrease' ? 'success' : 'primary';
+
+        const icon = suggestion.type === 'increase' ? 'arrow-up' :
+                    suggestion.type === 'decrease' ? 'arrow-down' : 'plus';
+
+        suggestionsHtml += `
+            <div class="col-md-6 mb-3">
+                <div class="card border-${badgeColor}">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start">
+                            <div class="flex-shrink-0 me-3">
+                                <span class="badge bg-${badgeColor}">
+                                    <i class="fas fa-${icon}"></i>
+                                </span>
+                            </div>
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">${suggestion.category}</h6>
+                                <p class="mb-2 text-sm">${suggestion.reason}</p>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">
+                                        Confidence: ${suggestion.confidence}%
+                                    </small>
+                                    <button class="btn btn-sm btn-outline-${badgeColor}"
+                                            onclick="applySuggestion('${suggestion.category}', ${suggestion.suggested_budget})">
+                                        Apply
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    suggestionsDiv.innerHTML = suggestionsHtml;
+}
+
+function applySuggestion(category, suggestedAmount) {
+    // Redirect to budget management with pre-filled data
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    window.location.href = `/user/budget/?category=${encodeURIComponent(category)}&amount=${suggestedAmount}&month=${currentMonth}&source=dashboard`;
+}
+
+// Chart type and date range variables
+let currentMainChartType = 'spending_breakdown';
+let currentMainDateRange = 'last_12_months';
+
+// Main chart type change handler
+function onMainChartTypeChange() {
+    currentMainChartType = document.getElementById('mainChartTypeSelect').value;
+    updateMainChartSummary();
+}
+
+// Main date range change handler
+function onMainDateRangeChange() {
+    currentMainDateRange = document.getElementById('mainDateRangeSelect').value;
+    updateMainChartSummary();
+}
+
+// Update main chart summary text
+function updateMainChartSummary() {
+    const chartTypeText = getChartTypeDisplayName(currentMainChartType);
+    const dateRangeText = getDateRangeDisplayName(currentMainDateRange);
+
+    document.getElementById('mainChartSummary').textContent = `Showing ${chartTypeText} for ${dateRangeText}`;
+}
+
+// Get display name for chart type
+function getChartTypeDisplayName(chartType) {
+    const chartNames = {
+        'spending_breakdown': 'spending breakdown',
+        'income_breakdown': 'income breakdown',
+        'savings_trends': 'savings trends',
+        'monthly_trends': 'monthly trends'
+    };
+    return chartNames[chartType] || 'chart data';
+}
+
+// Get display name for date range
+function getDateRangeDisplayName(dateRange) {
+    const rangeNames = {
+        'last_3_months': 'last 3 months',
+        'last_6_months': 'last 6 months',
+        'last_12_months': 'last 12 months',
+        'current_year': 'current year'
+    };
+    return rangeNames[dateRange] || 'selected period';
+}
+
+// Load main chart based on current selections
+async function loadMainChart() {
+    const loadingDiv = document.getElementById('ai-loading');
+    const contentDiv = document.getElementById('ai-insights-content');
+    const chartContainer = document.getElementById('main-chart-container');
+
+    loadingDiv.style.display = 'block';
+    contentDiv.style.display = 'none';
+
+    try {
+        // Build query parameters
+        let params = new URLSearchParams();
+        params.append('chart_type', currentMainChartType);
+        params.append('date_range', currentMainDateRange);
+
+        const response = await fetch(`/user/api/comprehensive-chart-data/?${params.toString()}`);
+        const data = await response.json();
+
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        // Update chart summary with actual data
+        if (data.data[currentMainChartType] && data.data[currentMainChartType].summary) {
+            const summary = data.data[currentMainChartType].summary;
+            document.getElementById('mainChartSummary').textContent =
+                `Showing ${getChartTypeDisplayName(currentMainChartType)} for ${summary.date_range} (Total: ₹${parseFloat(summary.total_amount || 0).toLocaleString()})`;
+        }
+
+        // Render appropriate chart
+        renderMainChart(data.data);
+
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading main chart:', error);
+        loadingDiv.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                Unable to load chart data. Please try again later.
+                <br><small class="text-muted">Error: ${error.message}</small>
+            </div>
+        `;
+    }
+}
+
+// Render the appropriate chart based on type
+function renderMainChart(data) {
+    const container = document.getElementById('main-chart-container');
+
+    if (currentMainChartType === 'spending_breakdown') {
+        renderSpendingBreakdownChart(data.spending_breakdown);
+    } else if (currentMainChartType === 'income_breakdown') {
+        renderIncomeBreakdownChart(data.income_breakdown);
+    } else if (currentMainChartType === 'savings_trends') {
+        renderSavingsTrendsChart(data.savings_trends);
+    } else if (currentMainChartType === 'monthly_trends') {
+        renderMonthlyTrendsChart(data.monthly_trends);
+    }
+}
+
+// Render spending breakdown chart (doughnut)
+function renderSpendingBreakdownChart(data) {
+    const container = document.getElementById('main-chart-container');
+
+    if (!data || !data.analysis || data.analysis.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-chart-pie fa-3x text-muted mb-3"></i>
+                <p class="text-muted">No expense data available for the selected period</p>
+                <small class="text-muted">Try selecting a different time period</small>
+            </div>
+        `;
+        return;
+    }
+
+    const labels = data.analysis.map(item => item.category_display);
+    const values = data.analysis.map(item => parseFloat(item.total_amount));
+    const backgroundColors = [
+        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+        '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+    ];
+
+    container.innerHTML = `
+        <div style="position: relative; height: 400px; width: 100%;">
+            <canvas id="mainSpendingChart"></canvas>
+        </div>
+    `;
+
+    const ctx = document.getElementById('mainSpendingChart').getContext('2d');
+
+    // Destroy existing chart if it exists
+    if (window.mainChart && typeof window.mainChart.destroy === 'function') {
+        window.mainChart.destroy();
+    }
+
+    window.mainChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: backgroundColors.slice(0, labels.length),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true,
+                        font: { size: 12 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                            return `${context.label}: ₹${context.parsed.toLocaleString()} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render income breakdown chart (doughnut)
+function renderIncomeBreakdownChart(data) {
+    const container = document.getElementById('main-chart-container');
+
+    if (!data || !data.analysis || data.analysis.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-chart-pie fa-3x text-muted mb-3"></i>
+                <p class="text-muted">No income data available for the selected period</p>
+                <small class="text-muted">Try selecting a different time period</small>
+            </div>
+        `;
+        return;
+    }
+
+    const labels = data.analysis.map(item => item.category_display);
+    const values = data.analysis.map(item => parseFloat(item.total_amount));
+    const backgroundColors = [
+        '#4CAF50', '#2196F3', '#FF9800', '#9C27B0',
+        '#F44336', '#607D8B', '#795548', '#E91E63'
+    ];
+
+    container.innerHTML = `
+        <div style="position: relative; height: 400px; width: 100%;">
+            <canvas id="mainIncomeChart"></canvas>
+        </div>
+    `;
+
+    const ctx = document.getElementById('mainIncomeChart').getContext('2d');
+
+    // Destroy existing chart if it exists
+    if (window.mainChart && typeof window.mainChart.destroy === 'function') {
+        window.mainChart.destroy();
+    }
+
+    window.mainChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: backgroundColors.slice(0, labels.length),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true,
+                        font: { size: 12 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = ((context.parsed / total) * 100).toFixed(1);
+                            return `${context.label}: ₹${context.parsed.toLocaleString()} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render savings trends chart (line chart)
+function renderSavingsTrendsChart(data) {
+    const container = document.getElementById('main-chart-container');
+
+    if (!data || !data.monthly_data || data.monthly_data.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-chart-line fa-3x text-muted mb-3"></i>
+                <p class="text-muted">No savings data available for the selected period</p>
+                <small class="text-muted">Try selecting a different time period</small>
+            </div>
+        `;
+        return;
+    }
+
+    const labels = data.monthly_data.map(item => item.month_display);
+    const savingsData = data.monthly_data.map(item => parseFloat(item.savings));
+    const incomeData = data.monthly_data.map(item => parseFloat(item.income));
+    const expensesData = data.monthly_data.map(item => parseFloat(item.expenses));
+
+    container.innerHTML = `
+        <div style="position: relative; height: 400px; width: 100%;">
+            <canvas id="mainSavingsChart"></canvas>
+        </div>
+    `;
+
+    const ctx = document.getElementById('mainSavingsChart').getContext('2d');
+
+    // Destroy existing chart if it exists
+    if (window.mainChart && typeof window.mainChart.destroy === 'function') {
+        window.mainChart.destroy();
+    }
+
+    window.mainChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Monthly Savings',
+                    data: savingsData,
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                },
+                {
+                    label: 'Income',
+                    data: incomeData,
+                    borderColor: '#2196F3',
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    tension: 0.4,
+                    hidden: true
+                },
+                {
+                    label: 'Expenses',
+                    data: expensesData,
+                    borderColor: '#F44336',
+                    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                    tension: 0.4,
+                    hidden: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.dataset.label}: ₹${context.parsed.y.toLocaleString()}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '₹' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render monthly trends chart (bar chart)
+function renderMonthlyTrendsChart(data) {
+    const container = document.getElementById('main-chart-container');
+
+    if (!data || !data.monthly_data || data.monthly_data.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5">
+                <i class="fas fa-chart-bar fa-3x text-muted mb-3"></i>
+                <p class="text-muted">No monthly data available for the selected period</p>
+                <small class="text-muted">Try selecting a different time period</small>
+            </div>
+        `;
+        return;
+    }
+
+    const labels = data.monthly_data.map(item => item.month_display);
+    const incomeData = data.monthly_data.map(item => parseFloat(item.income));
+    const expensesData = data.monthly_data.map(item => parseFloat(item.expenses));
+    const balanceData = data.monthly_data.map(item => parseFloat(item.balance));
+
+    container.innerHTML = `
+        <div style="position: relative; height: 400px; width: 100%;">
+            <canvas id="mainMonthlyChart"></canvas>
+        </div>
+    `;
+
+    const ctx = document.getElementById('mainMonthlyChart').getContext('2d');
+
+    // Destroy existing chart if it exists
+    if (window.mainChart && typeof window.mainChart.destroy === 'function') {
+        window.mainChart.destroy();
+    }
+
+    window.mainChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Income',
+                    data: incomeData,
+                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                    borderColor: '#4CAF50',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Expenses',
+                    data: expensesData,
+                    backgroundColor: 'rgba(244, 67, 54, 0.6)',
+                    borderColor: '#F44336',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.dataset.label}: ₹${context.parsed.y.toLocaleString()}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '₹' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Auto-refresh AI insights every 5 minutes
+setInterval(function() {
+    if (document.visibilityState === 'visible') {
+        loadAIInsights();
+    }
+}, 300000);
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-12">
@@ -123,6 +830,38 @@
                 </a>
             </div>
             <div class="card-body">
+                <!-- Overall Budget Usage -->
+                {% if total_budgeted > 0 %}
+                <div class="mb-3 p-2 bg-light rounded">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-bold">Total Budget Usage</span>
+                        <div class="d-flex align-items-center">
+                            <span class="badge {% if overall_budget_usage > 90 %}bg-danger{% elif overall_budget_usage > 75 %}bg-warning{% else %}bg-success{% endif %} me-2">
+                                {{ overall_budget_usage|floatformat:1 }}%
+                            </span>
+                            <small class="text-muted">
+                                <i class="fas fa-magic" title="Auto-adjustment enabled"></i>
+                            </small>
+                        </div>
+                    </div>
+                    <div class="progress mb-2" style="height: 8px;">
+                        <div class="progress-bar {% if overall_budget_usage > 90 %}bg-danger{% elif overall_budget_usage > 75 %}bg-warning{% else %}bg-success{% endif %}"
+                             role="progressbar"
+                             style="width: {{ overall_budget_usage }}%">
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between text-sm">
+                        <span>Total Budgeted: ₹{{ total_budgeted|floatformat:2 }}</span>
+                        <span>Available: ₹{{ available_for_budget|floatformat:2 }}</span>
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-info">
+                            <i class="fas fa-info-circle"></i>
+                            Budgets are automatically adjusted when you spend on unbudgeted categories
+                        </small>
+                    </div>
+                </div>
+                {% endif %}
                 {% if budgets %}
                     {% for budget in budgets %}
                     <div class="mb-3">
@@ -170,6 +909,118 @@
     </div>
 </div>
 
+<!-- AI Insights and Analytics -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain"></i> AI Financial Insights
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadAIInsights()">
+                        <i class="fas fa-sync"></i> Refresh Dashboard
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Chart Type Selector -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card border-primary">
+                            <div class="card-body">
+                                <div class="row align-items-center">
+                                    <div class="col-md-4">
+                                        <label for="mainChartTypeSelect" class="form-label fw-bold">
+                                            <i class="fas fa-chart-line"></i> Chart Type
+                                        </label>
+                                        <select class="form-select" id="mainChartTypeSelect" onchange="onMainChartTypeChange()">
+                                            <option value="spending_breakdown">💰 Spending Breakdown</option>
+                                            <option value="income_breakdown">💵 Income Breakdown</option>
+                                            <option value="savings_trends">📈 Savings Trends</option>
+                                            <option value="monthly_trends">📊 Monthly Trends</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label for="mainDateRangeSelect" class="form-label fw-bold">
+                                            <i class="fas fa-calendar-alt"></i> Time Period
+                                        </label>
+                                        <select class="form-select" id="mainDateRangeSelect" onchange="onMainDateRangeChange()">
+                                            <option value="last_3_months">Last 3 Months</option>
+                                            <option value="last_6_months">Last 6 Months</option>
+                                            <option value="last_12_months" selected>Last 12 Months</option>
+                                            <option value="current_year">Current Year</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">&nbsp;</label>
+                                        <button class="btn btn-primary w-100" onclick="loadMainChart()">
+                                            <i class="fas fa-sync"></i> Update Chart
+                                        </button>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">&nbsp;</label>
+                                        <button class="btn btn-outline-info w-100" onclick="loadBudgetSuggestions()">
+                                            <i class="fas fa-lightbulb"></i> AI Suggestions
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-12">
+                                        <small class="text-muted">
+                                            <span id="mainChartSummary">Showing spending breakdown for the last 12 months</span>
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="ai-loading" class="text-center py-3" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading chart data...</p>
+                </div>
+
+                <!-- AI Insights Content -->
+                <div id="ai-insights-content">
+                    <!-- Main Chart -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div id="main-chart-container">
+                                <!-- Chart will be dynamically loaded here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Financial Goals & Suggestions -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-target"></i> Financial Goals</h6>
+                            <div id="goals-progress">
+                                <div class="text-center py-3">
+                                    <small class="text-muted">Loading goals...</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6><i class="fas fa-lightbulb"></i> Smart Suggestions</h6>
+                            <div id="budget-suggestions" class="row">
+                                <div class="col-12 text-center py-3">
+                                    <small class="text-muted">Click "AI Suggestions" to get AI-powered budget recommendations</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Quick Actions -->
 <div class="row mt-4">
     <div class="col-12">
@@ -194,6 +1045,11 @@
                     <div class="col-md-3">
                         <a href="{% url 'user:budget_management' %}" class="btn btn-info btn-lg w-100 mb-2">
                             <i class="fas fa-chart-pie"></i> Manage Budget
+                        </a>
+                    </div>
+                    <div class="col-md-3">
+                        <a href="{% url 'user:budget_prediction' %}" class="btn btn-warning btn-lg w-100 mb-2">
+                            <i class="fas fa-crystal-ball"></i> AI Budget Prediction
                         </a>
                     </div>
                     <div class="col-md-3">
