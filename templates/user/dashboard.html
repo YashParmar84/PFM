@@ -316,7 +316,7 @@ function getDateRangeDisplayName(dateRange) {
     return rangeNames[dateRange] || 'selected period';
 }
 
-// Load main chart based on current selections
+// Load main chart based on dashboard's current period
 async function loadMainChart() {
     const loadingDiv = document.getElementById('ai-loading');
     const contentDiv = document.getElementById('ai-insights-content');
@@ -326,10 +326,17 @@ async function loadMainChart() {
     contentDiv.style.display = 'none';
 
     try {
-        // Build query parameters
+        // Build query parameters using dashboard's current period dates
+        // These values are passed from the Django view context
+        const dashboardStartDate = '{{ start_date|date:"Y-m-d" }}';
+        const dashboardEndDate = '{{ end_date|date:"Y-m-d" }}';
+        const periodDisplay = '{{ period_display }}';
+
         let params = new URLSearchParams();
         params.append('chart_type', currentMainChartType);
-        params.append('date_range', currentMainDateRange);
+        params.append('date_range', 'custom');
+        params.append('start_date', dashboardStartDate);
+        params.append('end_date', dashboardEndDate);
 
         const response = await fetch(`/user/api/comprehensive-chart-data/?${params.toString()}`);
         const data = await response.json();
@@ -338,11 +345,15 @@ async function loadMainChart() {
             throw new Error(data.error);
         }
 
-        // Update chart summary with actual data
+        // Update chart summary with actual data and dashboard period
         if (data.data[currentMainChartType] && data.data[currentMainChartType].summary) {
             const summary = data.data[currentMainChartType].summary;
             document.getElementById('mainChartSummary').textContent =
-                `Showing ${getChartTypeDisplayName(currentMainChartType)} for ${summary.date_range} (Total: ₹${parseFloat(summary.total_amount || 0).toLocaleString()})`;
+                `Showing ${getChartTypeDisplayName(currentMainChartType)} for "${periodDisplay}" (Total: ₹${parseFloat(summary.total_amount || 0).toLocaleString()})`;
+        } else {
+            // Fallback summary if no data available
+            document.getElementById('mainChartSummary').textContent =
+                `Showing ${getChartTypeDisplayName(currentMainChartType)} for "${periodDisplay}"`;
         }
 
         // Render appropriate chart
@@ -700,6 +711,53 @@ function renderMonthlyTrendsChart(data) {
     });
 }
 
+// Advanced Filters Functions
+function clearAdvancedFilters() {
+    // Clear month selector
+    const monthSelector = document.getElementById('monthSelector');
+    if (monthSelector) {
+        monthSelector.value = '';
+    }
+
+    // Clear date inputs
+    const startDateInput = document.getElementById('start-date-input');
+    const endDateInput = document.getElementById('end-date-input');
+
+    if (startDateInput) startDateInput.value = '';
+    if (endDateInput) endDateInput.value = '';
+
+    // Submit the form with cleared filters
+    const form = document.getElementById('advancedFiltersForm');
+    if (form) {
+        form.submit();
+    } else {
+        // Fallback: redirect to dashboard without parameters
+        window.location.href = '/user/dashboard/';
+    }
+}
+
+// Auto-submit form when month is selected (now using the unified form)
+document.addEventListener('DOMContentLoaded', function() {
+    const monthSelector = document.getElementById('monthSelector');
+    if (monthSelector) {
+        monthSelector.addEventListener('change', function() {
+            // If a month is selected, clear the date inputs to avoid conflicts
+            if (this.value) {
+                const startDateInput = document.getElementById('start-date-input');
+                const endDateInput = document.getElementById('end-date-input');
+                if (startDateInput) startDateInput.value = '';
+                if (endDateInput) endDateInput.value = '';
+            }
+
+            // Submit the unified form
+            const form = document.getElementById('advancedFiltersForm');
+            if (form) {
+                form.submit();
+            }
+        });
+    }
+});
+
 // Auto-refresh AI insights every 5 minutes
 setInterval(function() {
     if (document.visibilityState === 'visible') {
@@ -718,6 +776,81 @@ setInterval(function() {
     </div>
 </div>
 
+<!-- Filter Controls -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-filter"></i> View Period: {{ period_display }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Quick Period Buttons -->
+                <div class="btn-group mb-3" role="group" aria-label="Period Filter">
+                    <a href="?period=current_month" class="btn {% if selected_period == 'current_month' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                        <i class="fas fa-calendar-day"></i> This Month
+                    </a>
+                    <a href="?period=last_year" class="btn {% if selected_period == 'last_year' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                        <i class="fas fa-calendar-alt"></i> Last Year
+                    </a>
+                </div>
+
+                <!-- Advanced Filters -->
+                <form method="get" id="advancedFiltersForm" class="row g-3 align-items-end">
+                    <div class="col-lg-4 col-md-6">
+                        <div class="d-flex flex-column">
+                            <label class="form-label fw-bold small mb-2 text-muted">Quick Select Month:</label>
+                            <select class="form-select form-select-sm" name="month" id="monthSelector">
+                                <option value="">Choose Month...</option>
+                                {% for year in available_years %}
+                                    {% for month_num, month_name in month_choices %}
+                                        <option value="{{ year }}-{{ month_num|stringformat:'02d' }}" {% if selected_month == year|stringformat:'%s-'|add:month_num|stringformat:'02d' %}selected{% endif %}>
+                                            {{ month_name }} {{ year }}
+                                        </option>
+                                    {% endfor %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-lg-8 col-md-6">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <div class="d-flex flex-column">
+                                    <label class="form-label fw-bold small mb-2 text-muted">From Date:</label>
+                                    <input type="date" class="form-control form-control-sm" name="start_date" value="{{ custom_start_date }}" id="start-date-input">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-flex flex-column">
+                                    <label class="form-label fw-bold small mb-2 text-muted">To Date:</label>
+                                    <input type="date" class="form-control form-control-sm" name="end_date" value="{{ custom_end_date }}" id="end-date-input">
+                                </div>
+                            </div>
+                            <div class="col-md-4 d-flex flex-column">
+                                <label class="form-label fw-bold small mb-2 opacity-0">Actions:</label>
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-success btn-sm flex-fill" id="applyFiltersBtn">
+                                        <i class="fas fa-search"></i> Apply
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearAdvancedFilters()">
+                                        <i class="fas fa-times"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+
+                <small class="text-muted d-block mt-2">
+                    Showing data from {{ start_date|date:"M j, Y" }} to {{ end_date|date:"M j, Y" }}
+                    <br>Transactions filtered: {{ recent_transactions|length }} shown ({{ filtered_transactions.count }} total in period)
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Financial Overview Cards -->
 <div class="row mb-4">
     <div class="col-md-4">
@@ -725,11 +858,14 @@ setInterval(function() {
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h5 class="card-title">Total Income</h5>
+                        <h5 class="card-title">
+                            <i class="fas fa-arrow-up"></i> Income
+                        </h5>
                         <h3 class="mb-0">₹{{ total_income|floatformat:2 }}</h3>
+                        <small>{{ period_display }}</small>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-arrow-up fa-2x"></i>
+                        <i class="fas fa-coins fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -740,11 +876,14 @@ setInterval(function() {
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h5 class="card-title">Total Expenses</h5>
+                        <h5 class="card-title">
+                            <i class="fas fa-arrow-down"></i> Expenses
+                        </h5>
                         <h3 class="mb-0">₹{{ total_expense|floatformat:2 }}</h3>
+                        <small>{{ period_display }}</small>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-arrow-down fa-2x"></i>
+                        <i class="fas fa-receipt fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -755,11 +894,15 @@ setInterval(function() {
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h5 class="card-title">Balance</h5>
+                        <h5 class="card-title">
+                            <i class="fas fa-balance-scale"></i>
+                            {% if balance >= 0 %}Balance{% else %}Deficit{% endif %}
+                        </h5>
                         <h3 class="mb-0">₹{{ balance|floatformat:2 }}</h3>
+                        <small>{{ period_display }}</small>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-balance-scale fa-2x"></i>
+                        <i class="fas fa-wallet fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -767,13 +910,56 @@ setInterval(function() {
     </div>
 </div>
 
+<!-- Daily Breakdown -->
+{% if daily_data %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-calendar-check"></i> Daily Expenses & Income ({{ period_display }})
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Income</th>
+                                <th>Expenses</th>
+                                <th>Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for day in daily_data %}
+                            <tr>
+                                <td>{{ day.date }}</td>
+                                <td class="text-success">₹{{ day.income|floatformat:2 }}</td>
+                                <td class="text-danger">₹{{ day.expense|floatformat:2 }}</td>
+                                <td class="{% if day.income|add:day.expense >= 0 %}text-primary{% else %}text-warning{% endif %}">
+                                    ₹{{ day.income|add:day.expense|floatformat:2 }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+
+
 <div class="row">
     <!-- Recent Transactions -->
-    <div class="col-lg-8">
+    <div class="col-lg-6">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
-                    <i class="fas fa-list"></i> Recent Transactions
+                    <i class="fas fa-history"></i> Recent Transactions
                 </h5>
                 <a href="{% url 'user:transaction_list' %}" class="btn btn-sm btn-outline-primary">
                     View All
@@ -781,45 +967,46 @@ setInterval(function() {
             </div>
             <div class="card-body">
                 {% if recent_transactions %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Type</th>
-                                    <th>Category</th>
-                                    <th>Description</th>
-                                    <th>Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for transaction in recent_transactions %}
-                                <tr>
-                                    <td>{{ transaction.date }}</td>
-                                    <td>
-                                        <span class="badge {% if transaction.transaction_type == 'income' %}bg-success{% else %}bg-danger{% endif %}">
-                                            {{ transaction.get_transaction_type_display }}
+                    <div class="list-group list-group-flush">
+                        {% for transaction in recent_transactions %}
+                        <div class="list-group-item border-0 px-0 py-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <span class="badge bg-{% if transaction.transaction_type == 'income' %}success{% else %}danger{% endif %}">
+                                            <i class="fas fa-{% if transaction.transaction_type == 'income' %}plus{% else %}minus{% endif %}"></i>
                                         </span>
-                                    </td>
-                                    <td>{{ transaction.get_category_display }}</td>
-                                    <td>{{ transaction.description|truncatechars:30 }}</td>
-                                    <td class="{% if transaction.transaction_type == 'income' %}text-success{% else %}text-danger{% endif %}">
-                                        ₹{{ transaction.amount }}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold">{{ transaction.get_category_display }}</div>
+                                        <small class="text-muted">{{ transaction.date|date:"M j, Y" }} • {{ transaction.description|truncatechars:20 }}</small>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="fw-bold text-{% if transaction.transaction_type == 'income' %}success{% else %}danger{% endif %}">
+                                        {% if transaction.transaction_type == 'income' %}+{% else %}-{% endif %}₹{{ transaction.amount|floatformat:0 }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
                     </div>
                 {% else %}
-                    <p class="text-muted">No transactions found. <a href="{% url 'user:add_transaction' %}">Add your first transaction</a></p>
+                    <div class="text-center py-4">
+                        <i class="fas fa-receipt fa-3x text-muted mb-3"></i>
+                        <h6 class="text-muted">No transactions yet</h6>
+                        <p class="text-muted mb-3">Start by adding your first transaction</p>
+                        <a href="{% url 'user:add_transaction' %}" class="btn btn-primary btn-sm">
+                            Add Transaction
+                        </a>
+                    </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
     <!-- Budget Overview -->
-    <div class="col-lg-4">
+    <div class="col-lg-6">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
@@ -930,9 +1117,9 @@ setInterval(function() {
                         <div class="card border-primary">
                             <div class="card-body">
                                 <div class="row align-items-center">
-                                    <div class="col-md-4">
+                                    <div class="col-md-5">
                                         <label for="mainChartTypeSelect" class="form-label fw-bold">
-                                            <i class="fas fa-chart-line"></i> Chart Type
+                                            <i class="fas fa-chart-line"></i> AI Chart Type
                                         </label>
                                         <select class="form-select" id="mainChartTypeSelect" onchange="onMainChartTypeChange()">
                                             <option value="spending_breakdown">💰 Spending Breakdown</option>
@@ -941,34 +1128,30 @@ setInterval(function() {
                                             <option value="monthly_trends">📊 Monthly Trends</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-3">
-                                        <label for="mainDateRangeSelect" class="form-label fw-bold">
-                                            <i class="fas fa-calendar-alt"></i> Time Period
-                                        </label>
-                                        <select class="form-select" id="mainDateRangeSelect" onchange="onMainDateRangeChange()">
-                                            <option value="last_3_months">Last 3 Months</option>
-                                            <option value="last_6_months">Last 6 Months</option>
-                                            <option value="last_12_months" selected>Last 12 Months</option>
-                                            <option value="current_year">Current Year</option>
-                                        </select>
+                                    <div class="col-md-4">
+                                        <div class="alert alert-info py-2 mb-0">
+                                            <small class="mb-0">
+                                                <i class="fas fa-sync"></i> <strong>AI Charts synchronized with dashboard period:</strong>
+                                                <br>{{ period_display }} ({{ start_date|date:"M j, Y" }} - {{ end_date|date:"M j, Y" }})
+                                            </small>
+                                        </div>
                                     </div>
                                     <div class="col-md-3">
                                         <label class="form-label">&nbsp;</label>
-                                        <button class="btn btn-primary w-100" onclick="loadMainChart()">
-                                            <i class="fas fa-sync"></i> Update Chart
-                                        </button>
-                                    </div>
-                                    <div class="col-md-2">
-                                        <label class="form-label">&nbsp;</label>
-                                        <button class="btn btn-outline-info w-100" onclick="loadBudgetSuggestions()">
-                                            <i class="fas fa-lightbulb"></i> AI Suggestions
-                                        </button>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-primary flex-fill" onclick="loadMainChart()">
+                                                <i class="fas fa-sync"></i> Refresh
+                                            </button>
+                                            <button class="btn btn-outline-info" onclick="loadBudgetSuggestions()">
+                                                <i class="fas fa-lightbulb"></i> AI Tips
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="row mt-2">
                                     <div class="col-12">
                                         <small class="text-muted">
-                                            <span id="mainChartSummary">Showing spending breakdown for the last 12 months</span>
+                                            <span id="mainChartSummary">Showing spending breakdown for "{{ period_display }}"</span>
                                         </small>
                                     </div>
                                 </div>
@@ -1032,30 +1215,36 @@ setInterval(function() {
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-3">
-                        <a href="{% url 'user:add_transaction' %}" class="btn btn-success btn-lg w-100 mb-2">
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'user:add_transaction' %}" class="btn btn-success btn-lg w-100">
                             <i class="fas fa-plus"></i> Add Transaction
                         </a>
                     </div>
-                    <div class="col-md-3">
-                        <a href="{% url 'user:transaction_list' %}" class="btn btn-primary btn-lg w-100 mb-2">
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'user:transaction_list' %}" class="btn btn-primary btn-lg w-100">
                             <i class="fas fa-list"></i> View Transactions
                         </a>
                     </div>
-                    <div class="col-md-3">
-                        <a href="{% url 'user:budget_management' %}" class="btn btn-info btn-lg w-100 mb-2">
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'user:budget_management' %}" class="btn btn-info btn-lg w-100">
                             <i class="fas fa-chart-pie"></i> Manage Budget
                         </a>
                     </div>
-                    <div class="col-md-3">
-                        <a href="{% url 'user:budget_prediction' %}" class="btn btn-warning btn-lg w-100 mb-2">
-                            <i class="fas fa-crystal-ball"></i> AI Budget Prediction
-                        </a>
-                    </div>
-                    <div class="col-md-3">
-                        <a href="{% url 'user:transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100 mb-2">
+                    <div class="col-md-3 mb-3">
+                        <a href="{% url 'user:transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100">
                             <i class="fas fa-chart-line"></i> View Expenses
                         </a>
+                    </div>
+                </div>
+                <!-- Second row for admin access -->
+                <div class="row mt-3">
+                    <div class="col-md-12">
+                        <a href="/user-admin/" class="btn btn-secondary btn-lg w-100">
+                            <i class="fas fa-cogs"></i> Manage Your Data (Admin Interface)
+                        </a>
+                        <small class="text-muted d-block mt-1">
+                            <i class="fas fa-lock"></i> Advanced management tools for your personal data
+                        </small>
                     </div>
                 </div>
             </div>

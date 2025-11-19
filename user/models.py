@@ -98,6 +98,43 @@ class SpendingPattern(models.Model):
         unique_together = ['user', 'category', 'month']
 
 
+class UserActivity(models.Model):
+    """Model to track user activities and interactions"""
+    ACTIVITY_TYPES = [
+        ('login', 'User Login'),
+        ('logout', 'User Logout'),
+        ('add_transaction', 'Add Transaction'),
+        ('edit_transaction', 'Edit Transaction'),
+        ('delete_transaction', 'Delete Transaction'),
+        ('create_budget', 'Create Budget'),
+        ('update_budget', 'Update Budget'),
+        ('view_dashboard', 'View Dashboard'),
+        ('view_transactions', 'View Transactions'),
+        ('view_budget', 'View Budget'),
+        ('view_predictions', 'View Predictions'),
+        ('export_data', 'Export Data'),
+        ('import_data', 'Import Data'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    activity_type = models.CharField(max_length=20, choices=ACTIVITY_TYPES)
+    description = models.TextField(blank=True)
+    metadata = models.JSONField(blank=True, null=True, help_text="Additional data about the activity")
+    ip_address = models.GenericIPAddressField(blank=True, null=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username}: {self.get_activity_type_display()} - {self.created_at}"
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['activity_type', '-created_at']),
+        ]
+
+
 class FinancialGoal(models.Model):
     """Model to store user's financial goals"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)

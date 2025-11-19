@@ -3,9 +3,9 @@ from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.contrib.auth.models import User
-from .models import UserProfile, Transaction, Budget, SpendingPattern, FinancialGoal
+from .models import UserProfile, Transaction, Budget, SpendingPattern, FinancialGoal, UserActivity
 from django.db.models import Sum, Count
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from django.utils import timezone
 from decimal import Decimal
 from django.http import JsonResponse
@@ -25,11 +25,69 @@ def dashboard(request):
     """User dashboard with financial overview"""
     user = request.user
 
-    # Get current month transactions
-    current_month = timezone.now().date().replace(day=1)
+    # Get various date filter parameters
+    period = request.GET.get('period')
+    month_param = request.GET.get('month')
+    start_date_param = request.GET.get('start_date')
+    end_date_param = request.GET.get('end_date')
+
+    now = timezone.now().date()
+
+    # Handle custom date range filter (highest priority - when both dates provided)
+    if start_date_param and end_date_param:
+        try:
+            start_date = datetime.strptime(start_date_param, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date_param, '%Y-%m-%d').date()
+            period = 'custom'
+        except ValueError:
+            # Invalid dates, fall back to current month
+            start_date = now.replace(day=1)
+            end_date = now
+            period = 'current_month'
+
+    # Handle month-specific filter (when month dropdown is selected)
+    elif month_param:
+        try:
+            year, month = map(int, month_param.split('-'))
+            start_date = date(year, month, 1)
+            if month == 12:
+                end_date = date(year + 1, 1, 1) - timedelta(days=1)
+            else:
+                end_date = date(year, month + 1, 1) - timedelta(days=1)
+            period = 'specific_month'
+        except (ValueError, AttributeError):
+            # Invalid month, fall back to current month
+            start_date = now.replace(day=1)
+            end_date = now
+            period = 'current_month'
+
+    # Handle standard period filter (lowest priority)
+    elif period == 'current_month':
+        start_date = now.replace(day=1)
+        end_date = now
+    elif period == 'last_month':
+        if now.month == 1:
+            start_date = (now.replace(year=now.year-1, month=12, day=1))
+            end_date = (now.replace(year=now.year-1, month=12, day=31))
+        else:
+            start_date = (now.replace(month=now.month-1, day=1))
+            end_date = (start_date.replace(month=start_date.month+1, day=1) - timedelta(days=1))
+    elif period == 'last_year':
+        start_date = now.replace(year=now.year-1, month=1, day=1)
+        end_date = now.replace(year=now.year-1, month=12, day=31)
+    else:
+        # Default to current month
+        start_date = now.replace(day=1)
+        end_date = now
+        period = 'current_month'
+
+    # Set month_filter for budget filtering
+    month_filter = start_date
+
     transactions = Transaction.objects.filter(
         user=user,
-        date__gte=current_month
+        date__gte=start_date,
+        date__lte=end_date
     )
 
     # Calculate totals
@@ -38,14 +96,83 @@ def dashboard(request):
     total_expense = transactions.filter(transaction_type='expense').aggregate(
         total=Sum('amount'))['total'] or 0
 
-    # Get recent transactions
-    recent_transactions = Transaction.objects.filter(user=user).order_by('-date')[:10]
+    # Get filtered transactions like transaction_list.html - but respect period filter
+    filtered_transactions = Transaction.objects.filter(
+        user=user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).order_by('-date')
 
-    # Get budgets for current month with expense information
+    # Apply additional filters like transaction_list.html
+    transaction_type = request.GET.get('type')
+    if transaction_type:
+        filtered_transactions = filtered_transactions.filter(transaction_type=transaction_type)
+
+    category = request.GET.get('category')
+    if category:
+        filtered_transactions = filtered_transactions.filter(category=category)
+
+    # Get recent transactions for display (limited to 10)
+    recent_transactions_for_display = filtered_transactions[:10]
+
+    # Calculate total filtered totals for the cards (unlimited, all transactions in period)
+    filtered_income_total = Transaction.objects.filter(
+        user=user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).filter(transaction_type='income')
+
+    filtered_expense_total = Transaction.objects.filter(
+        user=user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).filter(transaction_type='expense')
+
+    # Apply category filter to totals if specified
+    if category:
+        filtered_income_total = filtered_income_total.filter(category=category)
+        filtered_expense_total = filtered_expense_total.filter(category=category)
+
+    # Get the actual totals
+    filtered_income = filtered_income_total.aggregate(total=Sum('amount'))['total'] or 0
+    filtered_expense = filtered_expense_total.aggregate(total=Sum('amount'))['total'] or 0
+
+    remaining_balance = filtered_income - filtered_expense
+
+    # Get daily expenses and income breakdown
+    daily_breakdown = {}
+    daily_transactions = Transaction.objects.filter(
+        user=user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).values('date', 'transaction_type').annotate(
+        total_amount=Sum('amount')
+    ).order_by('date')
+
+    for tx in daily_transactions:
+        date_str = tx['date'].strftime('%Y-%m-%d')
+        tx_type = tx['transaction_type']
+        if date_str not in daily_breakdown:
+            daily_breakdown[date_str] = {'income': 0, 'expense': 0}
+        daily_breakdown[date_str][tx_type] = float(tx['total_amount'])
+
+    # Convert to list for template
+    daily_data = [{'date': date, 'income': data['income'], 'expense': data['expense']}
+                  for date, data in daily_breakdown.items()]
+    daily_data.sort(key=lambda x: x['date'])
+
+    # Get recent transactions (always from the selected period for consistency)
+    recent_transactions = Transaction.objects.filter(
+        user=user,
+        date__gte=start_date,
+        date__lte=end_date
+    ).order_by('-date')[:10]
+
+    # Get budgets for selected period
     budgets = Budget.objects.filter(
         user=user,
-        month__year=current_month.year,
-        month__month=current_month.month
+        month__year=month_filter.year,
+        month__month=month_filter.month
     ).select_related()
 
     # Calculate total budgeted amount across all categories
@@ -63,15 +190,63 @@ def dashboard(request):
     # Calculate overall budget usage percentage (total budgeted / total income)
     overall_budget_usage = min((total_budgeted / total_income) * 100, 100) if total_income > 0 else 0
 
+    # Prepare month selector data
+    current_year = timezone.now().year
+    available_years = [current_year, current_year - 1]
+
+    month_choices = [
+        (1, 'January'), (2, 'February'), (3, 'March'), (4, 'April'),
+        (5, 'May'), (6, 'June'), (7, 'July'), (8, 'August'),
+        (9, 'September'), (10, 'October'), (11, 'November'), (12, 'December')
+    ]
+
+    # Set selected month for month selector
+    selected_month = ''
+    if month_param:
+        selected_month = month_param
+
+    # Set custom date inputs
+    custom_start_date = start_date_param or ''
+    custom_end_date = end_date_param or ''
+
     context = {
         'total_income': total_income,
         'total_expense': total_expense,
         'balance': total_income - total_expense,
         'recent_transactions': recent_transactions,
+        'transactions': transactions,  # Add transactions queryset for count
         'budgets': budgets,
         'total_budgeted': total_budgeted,
         'overall_budget_usage': overall_budget_usage,
         'available_for_budget': total_income - total_budgeted,
+        'daily_data': daily_data,
+        'selected_period': period,
+        'period_display': {
+            'current_month': 'This Month',
+            'last_month': 'Last Month',
+            'last_year': 'Last Year',
+            'custom': f"Custom ({start_date.strftime('%b %Y')} - {end_date.strftime('%b %Y')})",
+            'specific_month': f"{start_date.strftime('%B %Y')}"
+        }.get(period, 'This Month'),
+        'start_date': start_date,
+        'end_date': end_date,
+        # Month selector data
+        'month_choices': month_choices,
+        'available_years': available_years,
+        'selected_month': selected_month,
+        # Custom date inputs
+        'custom_start_date': custom_start_date,
+        'custom_end_date': custom_end_date,
+        # Add filtered data like transaction_list.html
+        'filtered_transactions': filtered_transactions,
+        'transaction_tracking': {
+            'filtered_income': filtered_income,
+            'filtered_expense': filtered_expense,
+            'remaining_balance': remaining_balance,
+            'is_savings': remaining_balance > 0,
+            'filter_type': transaction_type or 'all',
+            'filter_category': category or 'all'
+        }
     }
 
     return render(request, 'user/dashboard.html', context)

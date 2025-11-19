@@ -112,7 +112,7 @@ class Command(BaseCommand):
             SpendingPattern.objects.filter(user=user).delete()
             FinancialGoal.objects.filter(user=user).delete()
 
-            # Generate 3 months of data
+            # Generate 12 months of data instead of 3 for better ML training
             transactions_created, patterns_created = self.generate_user_data(user, profile)
             total_transactions += transactions_created
             total_patterns += patterns_created
@@ -131,24 +131,24 @@ class Command(BaseCommand):
         self.stdout.write("You can now test ML algorithms with diverse user patterns.")
 
     def generate_user_data(self, user, profile):
-        """Generate 3 months of realistic financial data for a user"""
+        """Generate financial data from January 2024 to current day with exactly 20 transactions per month"""
         monthly_salary = profile['monthly_salary']
         pattern = profile['spending_pattern']
 
         transactions = []
-        start_date = datetime(2025, 1, 1)
-        end_date = datetime(2025, 4, 1)
+        start_date = datetime(2024, 1, 1)  # Start from January 2024
+        end_date = datetime.now().replace(day=1) + timedelta(days=32)  # Current month + buffer
 
         current_date = start_date
-        while current_date < end_date:
+        while current_date <= end_date:
             month_start = current_date.replace(day=1)
 
-            # Generate income for this month
+            # Generate income for this month (1-3 transactions)
             income_txs = self.generate_monthly_income(user, month_start, monthly_salary, pattern)
             transactions.extend(income_txs)
 
-            # Generate expenses for this month
-            expense_txs = self.generate_monthly_expenses(user, month_start, monthly_salary, pattern)
+            # Generate exactly 20 expense transactions for this month
+            expense_txs = self.generate_monthly_expenses_exact_20(user, month_start, monthly_salary, pattern)
             transactions.extend(expense_txs)
 
             # Move to next month
@@ -325,6 +325,138 @@ class Command(BaseCommand):
                 ))
 
         return transactions
+
+    def generate_monthly_expenses_exact_20(self, user, month_date, monthly_salary, pattern):
+        """Generate exactly 20 expense transactions for a month"""
+        transactions = []
+
+        # Base expense ratios by pattern
+        expense_ratios = {
+            'conservative': {'food': 0.15, 'transportation': 0.08, 'bills': 0.10, 'healthcare': 0.05, 'entertainment': 0.05, 'shopping': 0.03},
+            'balanced': {'food': 0.20, 'transportation': 0.10, 'bills': 0.12, 'healthcare': 0.08, 'entertainment': 0.08, 'shopping': 0.08},
+            'high_spending': {'food': 0.25, 'transportation': 0.12, 'bills': 0.15, 'healthcare': 0.10, 'entertainment': 0.15, 'shopping': 0.12},
+            'variable': {'food': 0.18, 'transportation': 0.09, 'bills': 0.11, 'healthcare': 0.07, 'entertainment': 0.10, 'shopping': 0.06},
+            'minimalist': {'food': 0.12, 'transportation': 0.05, 'bills': 0.08, 'healthcare': 0.03, 'entertainment': 0.02, 'shopping': 0.02},
+            'luxury': {'food': 0.15, 'transportation': 0.12, 'bills': 0.10, 'healthcare': 0.08, 'entertainment': 0.20, 'shopping': 0.18},
+            'family_focused': {'food': 0.25, 'transportation': 0.08, 'bills': 0.15, 'healthcare': 0.12, 'entertainment': 0.06, 'shopping': 0.05},
+            'volatile': {'food': 0.22, 'transportation': 0.11, 'bills': 0.13, 'healthcare': 0.09, 'entertainment': 0.12, 'shopping': 0.10},
+            'stable': {'food': 0.18, 'transportation': 0.08, 'bills': 0.12, 'healthcare': 0.07, 'entertainment': 0.06, 'shopping': 0.05},
+            'growing': {'food': 0.19, 'transportation': 0.09, 'bills': 0.11, 'healthcare': 0.08, 'entertainment': 0.09, 'shopping': 0.07}
+        }
+
+        ratios = expense_ratios.get(pattern, expense_ratios['balanced'])
+
+        # Calculate exactly 20 transactions distributed across categories
+        transaction_distribution = {
+            'food': 6,           # Most frequent - daily/weekly shopping
+            'transportation': 3, # Regular transport expenses
+            'entertainment': 3,  # Weekend activities, dining out
+            'shopping': 3,       # Clothing, home items, etc.
+            'bills': 2,          # Monthly bills (electricity, internet, etc.)
+            'healthcare': 2,     # Doctor visits, pharmacy
+            'other': 1           # Miscellaneous expenses
+        }
+
+        # Ensure total is exactly 20
+        total_assigned = sum(transaction_distribution.values())
+        if total_assigned != 20:
+            # Adjust if needed
+            transaction_distribution['food'] += (20 - total_assigned)
+
+        # Generate transactions for each category
+        for category, count in transaction_distribution.items():
+            ratio = ratios.get(category, 0.05)  # Default 5% for other category
+            base_amount = monthly_salary * ratio
+
+            for i in range(count):
+                # Distribute amount across transactions with variation
+                variation = 0.7 + random.random() * 0.6  # ±30% variation
+                amount = (base_amount / count) * variation
+
+                # Generate realistic dates throughout the month
+                if category == 'food':
+                    # Spread food shopping throughout the month
+                    day = random.randint(1, 31)
+                elif category == 'bills':
+                    # Bills around mid-month
+                    day = random.randint(10, 20)
+                elif category == 'transportation':
+                    # Transportation spread out
+                    day = random.randint(1, 31)
+                elif category == 'healthcare':
+                    # Healthcare appointments spread out
+                    day = random.randint(5, 28)
+                else:
+                    # Other categories randomly throughout month
+                    day = random.randint(1, 31)
+
+                # Ensure valid day for month (not exceeding month length)
+                try:
+                    tx_date = month_date.replace(day=min(day, 28))
+                    if day > 28 and month_date.month in [1, 3, 5, 7, 8, 10, 12]:
+                        tx_date = month_date.replace(day=min(day, 31))
+                    elif day > 28 and month_date.month in [4, 6, 9, 11]:
+                        tx_date = month_date.replace(day=min(day, 30))
+                    else:
+                        tx_date = month_date.replace(day=min(day, 28))
+                except ValueError:
+                    tx_date = month_date.replace(day=15)  # Fallback to mid-month
+
+                # Get description based on category
+                description = self.get_transaction_description(category, i, pattern)
+
+                transactions.append(Transaction(
+                    user=user,
+                    amount=round(Decimal(amount), 2),
+                    transaction_type='expense',
+                    category=category,
+                    description=description,
+                    date=tx_date.strftime('%Y-%m-%d')
+                ))
+
+        return transactions
+
+    def get_transaction_description(self, category, index, pattern):
+        """Generate realistic transaction descriptions for exactly 20 transactions"""
+        descriptions = {
+            'food': [
+                'Grocery shopping at local market',
+                'Weekly supermarket visit',
+                'Fresh vegetables and fruits',
+                'Meat and poultry purchase',
+                'Bakery and bread items',
+                'Dairy products and milk'
+            ],
+            'transportation': [
+                'Fuel for car',
+                'Uber ride to office',
+                'Monthly metro pass',
+            ],
+            'entertainment': [
+                'Movie tickets and popcorn',
+                'Restaurant dinner',
+                'Streaming service subscription'
+            ],
+            'shopping': [
+                'New clothing items',
+                'Home decor purchase',
+                'Electronics and gadgets'
+            ],
+            'bills': [
+                'Electricity bill payment',
+                'Internet and mobile bill'
+            ],
+            'healthcare': [
+                'Doctor consultation fee',
+                'Pharmacy medicines'
+            ],
+            'other': [
+                'Miscellaneous expenses'
+            ]
+        }
+
+        category_descriptions = descriptions.get(category, [f'{category.title()} expense'])
+        return category_descriptions[index % len(category_descriptions)]
 
     def generate_comprehensive_ai_insights(self, user):
         """Generate comprehensive AI insights for the user"""
