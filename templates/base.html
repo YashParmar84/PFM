@@ -48,6 +48,11 @@
                                 <i class="fas fa-chart-pie"></i> Budget
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'user:ai_financial_insights' %}">
+                                <i class="fas fa-brain"></i> AI Financial Insights
+                            </a>
+                        </li>
                     {% endif %}
                 </ul>
                 
@@ -97,6 +102,7 @@
         {% block content %}
         {% endblock %}
     </main>
+
 
     <!-- Footer -->
     <footer class="bg-light text-center text-muted py-3 mt-5">
