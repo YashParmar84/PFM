@@ -1,5 +1,0 @@
-- [ ] Examine user models and transaction structure
-- [ ] Check existing management commands for creating test data
-- [ ] Create script to generate 2 users with earnings 20,000-25,000
-- [ ] Generate 6 months of transactions for each user
-- [ ] Verify the data was created correctly
