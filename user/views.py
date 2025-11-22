@@ -276,34 +276,128 @@ def home(request):
 @login_required
 def dashboard(request):
     """User dashboard view"""
-    six_months_ago = datetime.now() - timedelta(days=180)
-    
-    # Get recent transactions
-    recent_transactions = Transaction.objects.filter(
-        user=request.user
-    ).order_by('-date')[:10]
-    
-    # Calculate income and expenses for current month
-    current_month = datetime.now().replace(day=1)
-    current_month_transactions = Transaction.objects.filter(
+    from calendar import month_name
+    import calendar
+
+    # Get filter parameters
+    period = request.GET.get('period', 'current_month')
+    selected_month = request.GET.get('month')
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    # Debug: Uncomment to see parameters
+    # print(f"DEBUG: period={period}, selected_month={selected_month}, start_date_str={start_date_str}, end_date_str={end_date_str}")
+
+    now = datetime.now()
+    start_date = None
+    end_date = now.replace(hour=23, minute=59, second=59)
+
+    # Determine date range - priority order: selected_month > custom dates > period buttons > current month
+    if selected_month:  # Quick select month - highest priority
+        try:
+            year_part, month_part = selected_month.split('-')
+            start_date = datetime(int(year_part), int(month_part), 1)
+            end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+            period_display = f"{calendar.month_name[int(month_part)]} {year_part}"
+        except ValueError as e:
+            print(f"Error parsing selected_month {selected_month}: {e}")
+            pass
+    elif start_date_str and end_date_str:  # Custom date range
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            period_display = f"{start_date_str} to {end_date_str}"
+        except ValueError as e:
+            print(f"Error parsing custom dates {start_date_str} to {end_date_str}: {e}")
+            pass
+    elif period == 'last_year':
+        start_date = now.replace(year=now.year-1, month=1, day=1, hour=0, minute=0, second=0)
+        end_date = now.replace(day=31, month=12, hour=23, minute=59, second=59)
+        period_display = f"{now.year-1}"
+    elif period == 'custom' and start_date_str and end_date_str:  # Fallback for old logic
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            period_display = f"{start_date_str} to {end_date_str}"
+        except ValueError:
+            pass
+    else:  # Default to current month (includes period == 'current_month')
+        start_date = now.replace(day=1, hour=0, minute=0, second=0)
+        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+        period_display = f"{calendar.month_name[now.month]} {now.year}"
+
+    # Default to current month if no valid dates
+    if not start_date:
+        period_display = f"{calendar.month_name[now.month]} {now.year}"
+        start_date = now.replace(day=1, hour=0, minute=0, second=0)
+        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+
+    # Get transactions in the selected period (exclude future dates)
+    today = datetime.now().date()
+    adjusted_end_date = min(end_date.date(), today) if hasattr(end_date, 'date') else min(end_date, today)
+
+    filtered_transactions = Transaction.objects.filter(
         user=request.user,
-        date__gte=current_month
-    )
-    
-    monthly_income = sum(float(t.amount) for t in current_month_transactions if t.transaction_type == 'income')
-    monthly_expenses = sum(float(t.amount) for t in current_month_transactions if t.transaction_type == 'expense')
-    
+        date__range=[start_date, adjusted_end_date]
+    ).order_by('-date')
+
+    # Get recent transactions (always the latest 10, excluding future dates)
+    today = datetime.now().date()
+    recent_transactions = Transaction.objects.filter(
+        user=request.user,
+        date__lte=today
+    ).order_by('-date')[:10]
+
+    # Calculate income and expenses for the period
+    total_income = sum(float(t.amount) for t in filtered_transactions if t.transaction_type == 'income')
+    total_expense = sum(float(t.amount) for t in filtered_transactions if t.transaction_type == 'expense')
+    balance = total_income - total_expense
+
     # Get budget data
+    six_months_ago = datetime.now() - timedelta(days=180)
     budgets = Budget.objects.filter(user=request.user, month__gte=six_months_ago)
-    
+
+    # Get available year-month combinations for filter (only where transactions exist)
+    available_year_months = Transaction.objects.filter(user=request.user).dates('date', 'month', order='DESC')
+
+    # Create a list of (year, month, month_name) tuples for months that have transactions
+    available_months = []
+    for year_month in available_year_months:
+        year = year_month.year
+        month = year_month.month
+        month_name = calendar.month_name[month]
+        available_months.append({
+            'value': f"{year}-{month:02d}",
+            'label': f"{month_name} {year}"
+        })
+
+    # Sort by year descending, then month descending
+    available_months.sort(key=lambda x: (x['value']), reverse=True)
+
+    # Calculate overall budget usage
+    total_budgeted = sum(float(b.amount) for b in budgets)
+    total_spent = sum(float(b.get_current_expenses) for b in budgets)
+    overall_budget_usage = (total_spent / total_budgeted * 100) if total_budgeted > 0 else 0
+    # Sort by year descending, then month descending
     context = {
-        'recent_transactions': recent_transactions,
-        'monthly_income': monthly_income,
-        'monthly_expenses': monthly_expenses,
-        'net_savings': monthly_income - monthly_expenses,
+        'recent_transactions': filtered_transactions[:10],  # Show filtered transactions as "recent" for the period
+        'filtered_transactions': filtered_transactions,
+        'total_income': total_income,
+        'total_expense': total_expense,
+        'balance': balance,
         'budgets': budgets,
+        'start_date': start_date,
+        'end_date': end_date,
+        'period_display': period_display,
+        'selected_period': period,
+        'selected_month': selected_month,
+        'custom_start_date': start_date_str,
+        'custom_end_date': end_date_str,
+        'available_months': available_months,
+        'total_budgeted': total_budgeted,
+        'overall_budget_usage': overall_budget_usage,
     }
-    
+
     return render(request, 'user/dashboard.html', context)
 
 
@@ -311,9 +405,112 @@ def dashboard(request):
 def add_transaction(request):
     """Add new transaction view"""
     if request.method == 'POST':
-        # Transaction creation logic here
-        pass
-    return render(request, 'user/add_transaction.html')
+        from django.contrib import messages
+        from user.models import UserActivity
+
+        amount = request.POST.get('amount').strip()
+        transaction_type = request.POST.get('transaction_type')
+        category = request.POST.get('category')
+        description = request.POST.get('description', '').strip()
+        date_str = request.POST.get('date')
+
+        # Validation
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                messages.error(request, 'Amount must be greater than zero.')
+                return render(request, 'user/add_transaction.html', {
+                    'amount': request.POST.get('amount'),
+                    'transaction_type': transaction_type,
+                    'category': category,
+                    'description': description,
+                    'date': date_str
+                })
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter a valid amount.')
+            return render(request, 'user/add_transaction.html', {
+                'amount': request.POST.get('amount'),
+                'transaction_type': transaction_type,
+                'category': category,
+                'description': description,
+                'date': date_str
+            })
+
+        if not transaction_type or transaction_type not in ['income', 'expense']:
+            messages.error(request, 'Please select a valid transaction type.')
+            return render(request, 'user/add_transaction.html', {
+                'amount': amount,
+                'transaction_type': transaction_type,
+                'category': category,
+                'description': description,
+                'date': date_str
+            })
+
+        if not category or category not in [c[0] for c in Transaction.CATEGORIES]:
+            messages.error(request, 'Please select a valid category.')
+            return render(request, 'user/add_transaction.html', {
+                'amount': amount,
+                'transaction_type': transaction_type,
+                'category': category,
+                'description': description,
+                'date': date_str
+            })
+
+        # Parse date
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter a valid date.')
+            return render(request, 'user/add_transaction.html', {
+                'amount': amount,
+                'transaction_type': transaction_type,
+                'category': category,
+                'description': description,
+                'date': date_str
+            })
+
+        # Create transaction
+        try:
+            transaction = Transaction.objects.create(
+                user=request.user,
+                amount=amount,
+                transaction_type=transaction_type,
+                category=category,
+                description=description,
+                date=date
+            )
+
+            # Log activity
+            UserActivity.objects.create(
+                user=request.user,
+                activity_type='add_transaction',
+                description=f"Added {transaction_type} transaction of ₹{amount:.2f} for {transaction.get_category_display()}",
+                metadata={
+                    'transaction_id': transaction.id,
+                    'amount': str(amount),
+                    'type': transaction_type,
+                    'category': category
+                }
+            )
+
+            messages.success(request, f'Transaction added successfully!')
+            return redirect('user:dashboard')
+
+        except Exception as e:
+            messages.error(request, f'Error adding transaction: {str(e)}')
+            return render(request, 'user/add_transaction.html', {
+                'amount': amount,
+                'transaction_type': transaction_type,
+                'category': category,
+                'description': description,
+                'date': date_str
+            })
+
+    return render(request, 'user/add_transaction.html', {
+        'transaction_types': Transaction.TRANSACTION_TYPES,
+        'categories': Transaction.CATEGORIES,
+        'today': datetime.now().date()
+    })
 
 
 @login_required
@@ -414,6 +611,8 @@ def get_spending_insights(request):
 def get_budget_suggestions(request):
     """API to get budget suggestions"""
     return JsonResponse({
+        'categories': Transaction.CATEGORIES,
+        'today': datetime.now().date(),
         'suggestions': [
             {
                 'category': 'Food & Dining',

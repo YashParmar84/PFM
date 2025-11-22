@@ -8,7 +8,6 @@
 window.loadBudgetSuggestions = loadBudgetSuggestions;
 window.loadAIInsights = loadAIInsights;
 window.renderSpendingChart = renderSpendingChart;
-window.renderFinancialGoals = renderFinancialGoals;
 window.renderBudgetSuggestions = renderBudgetSuggestions;
 window.applySuggestion = applySuggestion;
 
@@ -29,17 +28,6 @@ async function loadAIInsights() {
     try {
         // Load comprehensive chart data for the default chart type
         await loadMainChart();
-
-        // Load financial goals separately
-        const goalsResponse = await fetch('/user/api/spending-insights/');
-        const goalsData = await goalsResponse.json();
-
-        if (goalsData.error) {
-            throw new Error(goalsData.error);
-        }
-
-        // Render financial goals
-        renderFinancialGoals(goalsData.financial_goals);
 
         // Show content
         loadingDiv.style.display = 'none';
@@ -163,50 +151,7 @@ function renderSpendingChart(categoryAnalysis) {
     });
 }
 
-function renderFinancialGoals(goals) {
-    const goalsDiv = document.getElementById('goals-progress');
 
-    if (!goals || goals.length === 0) {
-        goalsDiv.innerHTML = `
-            <div class="text-center py-3">
-                <i class="fas fa-target fa-2x text-muted mb-2"></i>
-                <p class="text-muted">No financial goals set</p>
-                <small class="text-muted">Set your first financial goal to track progress</small>
-            </div>
-        `;
-        return;
-    }
-
-    let goalsHtml = '';
-    goals.slice(0, 3).forEach(goal => {  // Show top 3 goals
-        // Ensure progress_percentage is a valid number
-        const progressValue = parseFloat(goal.progress_percentage) || 0;
-        const progressColor = progressValue >= 100 ? 'success' :
-                             progressValue >= 75 ? 'primary' :
-                             progressValue >= 50 ? 'warning' : 'danger';
-
-        goalsHtml += `
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="fw-bold">${goal.name || 'Unnamed Goal'}</span>
-                    <small class="text-muted">${progressValue.toFixed(1)}%</small>
-                </div>
-                <div class="progress" style="height: 8px;">
-                    <div class="progress-bar bg-${progressColor}"
-                         role="progressbar"
-                         style="width: ${Math.min(progressValue, 100)}%">
-                    </div>
-                </div>
-                <div class="d-flex justify-content-between mt-1">
-                    <small class="text-muted">₹${parseFloat(goal.current_amount || 0).toLocaleString()} / ₹${parseFloat(goal.target_amount || 0).toLocaleString()}</small>
-                    <small class="text-muted">${goal.priority || 'Medium'}</small>
-                </div>
-            </div>
-        `;
-    });
-
-    goalsDiv.innerHTML = goalsHtml;
-}
 
 function renderBudgetSuggestions(suggestions) {
     const suggestionsDiv = document.getElementById('budget-suggestions');
@@ -803,12 +748,10 @@ setInterval(function() {
                             <label class="form-label fw-bold small mb-2 text-muted">Quick Select Month:</label>
                             <select class="form-select form-select-sm" name="month" id="monthSelector">
                                 <option value="">Choose Month...</option>
-                                {% for year in available_years %}
-                                    {% for month_num, month_name in month_choices %}
-                                        <option value="{{ year }}-{{ month_num|stringformat:'02d' }}" {% if selected_month == year|stringformat:'%s-'|add:month_num|stringformat:'02d' %}selected{% endif %}>
-                                            {{ month_name }} {{ year }}
-                                        </option>
-                                    {% endfor %}
+                                {% for month in available_months %}
+                                    <option value="{{ month.value }}" {% if selected_month == month.value %}selected{% endif %}>
+                                        {{ month.label }}
+                                    </option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -842,9 +785,9 @@ setInterval(function() {
                     </div>
                 </form>
 
-                <small class="text-muted d-block mt-2">
+                                                <small class="text-muted d-block mt-2">
                     Showing data from {{ start_date|date:"M j, Y" }} to {{ end_date|date:"M j, Y" }}
-                    <br>Transactions filtered: {{ recent_transactions|length }} shown ({{ filtered_transactions.count }} total in period)
+                    <br>{{ period_display }} - {{ recent_transactions|length }} transactions shown ({{ filtered_transactions.count }} total in period)
                 </small>
             </div>
         </div>
@@ -1104,11 +1047,6 @@ setInterval(function() {
                 <h5 class="mb-0">
                     <i class="fas fa-brain"></i> AI Financial Insights
                 </h5>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="loadAIInsights()">
-                        <i class="fas fa-sync"></i> Refresh Dashboard
-                    </button>
-                </div>
             </div>
             <div class="card-body">
                 <!-- Chart Type Selector -->
@@ -1179,21 +1117,13 @@ setInterval(function() {
                         </div>
                     </div>
 
-                    <!-- Financial Goals & Suggestions -->
+                    <!-- Smart Suggestions -->
                     <div class="row">
-                        <div class="col-md-6">
-                            <h6><i class="fas fa-target"></i> Financial Goals</h6>
-                            <div id="goals-progress">
-                                <div class="text-center py-3">
-                                    <small class="text-muted">Loading goals...</small>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <h6><i class="fas fa-lightbulb"></i> Smart Suggestions</h6>
-                            <div id="budget-suggestions" class="row">
-                                <div class="col-12 text-center py-3">
-                                    <small class="text-muted">Click "AI Suggestions" to get AI-powered budget recommendations</small>
+                        <div class="col-12">
+                            <h6 class="text-center"><i class="fas fa-lightbulb"></i> Smart Budget Suggestions</h6>
+                            <div id="budget-suggestions" class="d-flex justify-content-center align-items-center min-vh-10">
+                                <div class="text-center py-5 px-4 bg-light rounded-3 w-75">
+                                    <small class="text-muted fs-6">Click "AI Tips" to get AI-powered budget recommendations and spending suggestions</small>
                                 </div>
                             </div>
                         </div>
@@ -1204,51 +1134,5 @@ setInterval(function() {
     </div>
 </div>
 
-<!-- Quick Actions -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-bolt"></i> Quick Actions
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'user:add_transaction' %}" class="btn btn-success btn-lg w-100">
-                            <i class="fas fa-plus"></i> Add Transaction
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'user:transaction_list' %}" class="btn btn-primary btn-lg w-100">
-                            <i class="fas fa-list"></i> View Transactions
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'user:budget_management' %}" class="btn btn-info btn-lg w-100">
-                            <i class="fas fa-chart-pie"></i> Manage Budget
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-3">
-                        <a href="{% url 'user:transaction_list' %}?type=expense" class="btn btn-warning btn-lg w-100">
-                            <i class="fas fa-chart-line"></i> View Expenses
-                        </a>
-                    </div>
-                </div>
-                <!-- Second row for admin access -->
-                <div class="row mt-3">
-                    <div class="col-md-12">
-                        <a href="/user-admin/" class="btn btn-secondary btn-lg w-100">
-                            <i class="fas fa-cogs"></i> Manage Your Data (Admin Interface)
-                        </a>
-                        <small class="text-muted d-block mt-1">
-                            <i class="fas fa-lock"></i> Advanced management tools for your personal data
-                        </small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+
 {% endblock %}
