@@ -996,7 +996,7 @@ setInterval(function() {
                     {% for budget in budgets %}
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="fw-bold">{{ budget.get_category_display }}</span>
+                            <span class="fw-bold">{{ budget.category_display }}</span>
                             <div class="text-end">
                                 <small class="text-muted">₹{{ budget.current_expenses|default:0 }} / ₹{{ budget.amount }}</small>
                                 {% if budget.is_over_budget %}

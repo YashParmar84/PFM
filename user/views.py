@@ -353,10 +353,6 @@ def dashboard(request):
     total_expense = sum(float(t.amount) for t in filtered_transactions if t.transaction_type == 'expense')
     balance = total_income - total_expense
 
-    # Get budget data
-    six_months_ago = datetime.now() - timedelta(days=180)
-    budgets = Budget.objects.filter(user=request.user, month__gte=six_months_ago)
-
     # Get available year-month combinations for filter (only where transactions exist)
     available_year_months = Transaction.objects.filter(user=request.user).dates('date', 'month', order='DESC')
 
@@ -374,18 +370,16 @@ def dashboard(request):
     # Sort by year descending, then month descending
     available_months.sort(key=lambda x: (x['value']), reverse=True)
 
-    # Calculate overall budget usage
-    total_budgeted = sum(float(b.amount) for b in budgets)
-    total_spent = sum(float(b.get_current_expenses) for b in budgets)
-    overall_budget_usage = (total_spent / total_budgeted * 100) if total_budgeted > 0 else 0
-    # Sort by year descending, then month descending
+    # Get enriched budget context (withautomatic spending calculations)
+    budget_context = get_budget_context(request)
+
+    # Update context with all data
     context = {
         'recent_transactions': filtered_transactions[:10],  # Show filtered transactions as "recent" for the period
         'filtered_transactions': filtered_transactions,
         'total_income': total_income,
         'total_expense': total_expense,
         'balance': balance,
-        'budgets': budgets,
         'start_date': start_date,
         'end_date': end_date,
         'period_display': period_display,
@@ -394,9 +388,11 @@ def dashboard(request):
         'custom_start_date': start_date_str,
         'custom_end_date': end_date_str,
         'available_months': available_months,
-        'total_budgeted': total_budgeted,
-        'overall_budget_usage': overall_budget_usage,
     }
+
+    # Add budget context data
+    context.update(budget_context)
+    context['overall_budget_usage'] = context['overall_percentage']  # Dashboard expects this name
 
     return render(request, 'user/dashboard.html', context)
 
@@ -537,7 +533,172 @@ def delete_transaction(request, transaction_id):
 @login_required
 def budget_management(request):
     """Budget management view"""
-    return render(request, 'user/budget_management.html')
+    if request.method == 'POST':
+        from django.contrib import messages
+        from user.models import Budget, UserActivity
+
+        category = request.POST.get('category')
+        amount_str = request.POST.get('amount')
+        month_str = request.POST.get('month')
+
+        # Validation
+        try:
+            amount = float(amount_str)
+            if amount <= 0:
+                messages.error(request, 'Budget amount must be greater than zero.')
+                context = get_budget_context(request)
+                return render(request, 'user/budget_management.html', context)
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter a valid budget amount.')
+            context = get_budget_context(request)
+            return render(request, 'user/budget_management.html', context)
+
+        if not category or category not in [c[0] for c in Transaction.CATEGORIES]:
+            messages.error(request, 'Please select a valid category.')
+            context = get_budget_context(request)
+            return render(request, 'user/budget_management.html', context)
+
+        # Parse month
+        try:
+            month = datetime.strptime(month_str, '%Y-%m').date().replace(day=1)
+        except (ValueError, TypeError):
+            messages.error(request, 'Please enter a valid month.')
+            context = get_budget_context(request)
+            return render(request, 'user/budget_management.html', context)
+
+        # Create or update budget
+        try:
+            budget, created = Budget.objects.update_or_create(
+                user=request.user,
+                category=category,
+                month=month,
+                defaults={'amount': amount}
+            )
+
+            # Log activity
+            activity_type = 'create_budget' if created else 'update_budget'
+            UserActivity.objects.create(
+                user=request.user,
+                activity_type=activity_type,
+                description=f"{'Created' if created else 'Updated'} budget of ₹{amount:.2f} for {budget.get_category_display()} ({month.strftime('%b %Y')})",
+                metadata={
+                    'budget_id': budget.id,
+                    'amount': str(amount),
+                    'category': category,
+                    'month': month_str
+                }
+            )
+
+            messages.success(request, f'Budget {"created" if created else "updated"} successfully!')
+
+            # Stay on the same page to show updated budget overview
+            context = get_budget_context(request)
+            return render(request, 'user/budget_management.html', context)
+
+        except Exception as e:
+            messages.error(request, f'Error saving budget: {str(e)}')
+            context = get_budget_context(request)
+            return render(request, 'user/budget_management.html', context)
+
+    # GET request - display budget page
+    context = get_budget_context(request)
+    return render(request, 'user/budget_management.html', context)
+
+
+def get_budget_context(request):
+    """Helper function to get budget context data with enriched budget info for both overview and table"""
+    # Get all budgets for the user (recent ones for overview cards, all for table)
+    budgets = Budget.objects.filter(user=request.user).order_by('-month', '-pk')
+
+    # Create enriched budget data for the overview section (show recent budgets as cards)
+    enriched_budgets = []
+    total_budgeted = 0.0
+    total_spent = 0.0
+    total_remaining = 0.0
+    over_budget_count = 0
+
+    for budget in budgets:
+        current_expenses = 0.0
+        budget_amount = 0.0
+
+        try:
+            current_expenses_val = budget.get_current_expenses
+            current_expenses = float(current_expenses_val or 0)
+        except (TypeError, ValueError) as e:
+            print(f"DEBUG: ERROR getting expenses for {budget.category}: {e}")
+            current_expenses = 0.0
+
+        try:
+            budget_amount = float(budget.amount)
+        except (TypeError, ValueError) as e:
+            print(f"DEBUG: ERROR getting budget amount for {budget.category}: {e}")
+            budget_amount = 0.0
+
+        # Debug: Show calculation details
+        print(f"DEBUG: Budget '{budget.category}' - Spent: ₹{current_expenses:.2f}, Budget: ₹{budget_amount:.2f}, Month: {budget.month}")
+
+        is_over_budget = current_expenses > budget_amount
+        remaining_amount = budget_amount - current_expenses
+        over_budget_amount = current_expenses - budget_amount if is_over_budget else 0
+
+        # Accumulate totals
+        total_budgeted += budget_amount
+        total_spent += current_expenses
+        if not is_over_budget:
+            total_remaining += remaining_amount
+        else:
+            over_budget_count += 1
+
+        enriched_budget = {
+            'id': budget.id,
+            'category': budget.category,
+            'category_display': budget.get_category_display(),
+            'amount': budget.amount,
+            'month': budget.month,
+            'month_display': budget.month.strftime('%b %Y'),
+            'current_expenses': current_expenses,
+            'remaining_amount': abs(remaining_amount),  # Always positive
+            'remaining_budget': abs(remaining_amount),  # Dashboard template uses this name
+            'over_budget_amount': over_budget_amount,   # Only positive if over budget
+            'is_over_budget': is_over_budget,
+            'status': 'over_budget' if is_over_budget else 'remaining',
+            'progress_percentage': (current_expenses / budget_amount * 100) if budget_amount > 0 else 0,
+            'usage_percentage': (current_expenses / budget_amount * 100) if budget_amount > 0 else 0,  # Alternative name
+        }
+        enriched_budgets.append(enriched_budget)
+
+    # Calculate overall budget health
+    overall_percentage = (total_spent / total_budgeted * 100) if total_budgeted > 0 else 0
+
+    prefill_data = {}
+    try:
+        category_q = request.GET.get('category')
+        amount_q = request.GET.get('amount')
+        month_q = request.GET.get('month')
+        if category_q and month_q:
+            prefill_data = {
+                'category': category_q,
+                'amount': amount_q or '',
+                'month': month_q,
+            }
+    except Exception:
+        prefill_data = {}
+
+    context = {
+        'budgets': enriched_budgets,  # For both overview cards and table
+        'raw_budgets': budgets,
+        'prefill_data': prefill_data,
+        'categories': Transaction.CATEGORIES,
+        'total_budgeted': total_budgeted,
+        'total_spent': total_spent,
+        'total_remaining': total_remaining,
+        'overall_percentage': overall_percentage,
+        'over_budget_count': over_budget_count,
+        'budget_count': len(enriched_budgets),
+        'available_for_budget': (total_budgeted - total_spent) if total_budgeted > 0 else 0,
+    }
+
+    return context
 
 
 @login_required

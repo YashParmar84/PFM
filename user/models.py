@@ -64,13 +64,55 @@ class Budget(models.Model):
     def get_current_expenses(self):
         """Get current expenses for this budget's category and month"""
         from django.db.models import Sum
-        return Transaction.objects.filter(
+        import datetime
+
+        # Extract year and month from the budget's month field
+        budget_year = self.month.year
+        budget_month = self.month.month
+
+        # Debug: Show what we're looking for
+        print(f"\n🧪 DEBUG: Budget Check for {self.user.username}")
+        print(f"   Category: '{self.category}' | Month: {budget_year}-{budget_month:02d}")
+        print(f"   Budget Amount: ₹{float(self.amount):.2f}")
+
+        # Build query for debugging
+        expenses_queryset = Transaction.objects.filter(
             user=self.user,
             category=self.category,
             transaction_type='expense',
-            date__year=self.month.year,
-            date__month=self.month.month
-        ).aggregate(total=Sum('amount'))['total'] or 0
+            date__year=budget_year,
+            date__month=budget_month
+        )
+
+        # Debug: Show transaction count
+        count = expenses_queryset.count()
+        print(f"   Found {count} expense transactions for this category/month")
+
+        # Show sample transactions if any found
+        if count > 0:
+            sample_txs = expenses_queryset[:3]  # First 3 transactions
+            for tx in sample_txs:
+                print(f"   💰 Transaction: {tx.date} - ₹{float(tx.amount):.2f} - {tx.description}")
+        else:
+            print(f"   🔍 No transactions found - checking all user's transactions...")
+
+            # If no transactions for this category/month, show what exists
+            all_user_expenses = Transaction.objects.filter(
+                user=self.user,
+                transaction_type='expense'
+            )[:5]  # Show first 5
+
+            for tx in all_user_expenses:
+                print(f"   ✅ Existing TX: {tx.category} on {tx.date.year}-{tx.date.month:02d} - ₹{float(tx.amount):.2f}")
+
+        # Calculate total
+        total_expenses = expenses_queryset.aggregate(total=Sum('amount'))['total']
+        final_amount = float(total_expenses) if total_expenses is not None else 0.0
+
+        print(f"   ✅ Total Spent: ₹{final_amount:.2f}")
+        print(f"   ⚖️ Remaining Budget: ₹{float(self.amount) - final_amount:.2f}")
+
+        return final_amount
 
     class Meta:
         unique_together = ['user', 'category', 'month']
