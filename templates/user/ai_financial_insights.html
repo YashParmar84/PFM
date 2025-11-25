@@ -1,0 +1,1531 @@
+{% extends 'base.html' %}
+
+{% block title %}AI Financial Insights - Personal Finance Management{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="fas fa-brain me-2"></i>AI Financial Insights</h1>
+            <div class="alert alert-info mb-0">
+                <small>Average Monthly Income: <strong>₹{{ average_monthly_income|floatformat:2 }}</strong></small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters Section -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-filter me-2"></i>Filter Products
+                    <button class="btn btn-sm btn-outline-secondary float-end" onclick="clearAllFilters()">
+                        <i class="fas fa-times"></i> Clear All
+                    </button>
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="productFiltersForm">
+                    <div class="row g-3">
+                        <!-- Category Filter -->
+                        <div class="col-lg-3 col-md-6">
+                            <label class="form-label fw-bold small">Category</label>
+                            <select class="form-select form-select-sm" id="categoryFilter" onchange="applyFilters()">
+                                <option value="">All Categories</option>
+                                <option value="two_wheeler">Two Wheeler</option>
+                                <option value="four_wheeler">Four Wheeler</option>
+                                <option value="electronics">Electronics</option>
+                                <option value="home_loan">Home Loan</option>
+                                <option value="personal_loan">Personal Loan</option>
+                                <option value="gold_loan">Gold Loan</option>
+                            </select>
+                        </div>
+
+                        <!-- Price Range Filter -->
+                        <div class="col-lg-3 col-md-6">
+                            <label class="form-label fw-bold small">Price Range</label>
+                            <select class="form-select form-select-sm" id="priceRangeFilter" onchange="applyFilters()">
+                                <option value="">All Prices</option>
+                                <option value="0-50000">Under ₹50,000</option>
+                                <option value="50000-100000">₹50,000 - ₹1,00,000</option>
+                                <option value="100000-500000">₹1,00,000 - ₹5,00,000</option>
+                                <option value="500000-1000000">₹5,00,000 - ₹10,00,000</option>
+                                <option value="1000000+">Above ₹10,00,000</option>
+                            </select>
+                        </div>
+
+                        <!-- Bank Filter -->
+                        <div class="col-lg-3 col-md-6">
+                            <label class="form-label fw-bold small">Bank</label>
+                            <select class="form-select form-select-sm" id="bankFilter" onchange="applyFilters()">
+                                <option value="">All Banks</option>
+                                <option value="State Bank of India (SBI)">State Bank of India (SBI)</option>
+                                <option value="HDFC Bank">HDFC Bank</option>
+                                <option value="ICICI Bank">ICICI Bank</option>
+                                <option value="Axis Bank">Axis Bank</option>
+                                <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+                                <option value="Bajaj Finance (NBFC)">Bajaj Finance (NBFC)</option>
+                                <option value="IDFC First Bank">IDFC First Bank</option>
+                                <option value="Canara Bank">Canara Bank</option>
+                                <option value="Punjab National Bank (PNB)">Punjab National Bank (PNB)</option>
+                                <option value="Yes Bank">Yes Bank</option>
+                            </select>
+                        </div>
+
+                        <!-- EMI Range Filter -->
+                        <div class="col-lg-3 col-md-6">
+                            <label class="form-label fw-bold small">EMI Range</label>
+                            <select class="form-select form-select-sm" id="emiRangeFilter" onchange="applyFilters()">
+                                <option value="">All EMIs</option>
+                                <option value="0-5000">Under ₹5,000</option>
+                                <option value="5000-10000">₹5,000 - ₹10,000</option>
+                                <option value="10000-20000">₹10,000 - ₹20,000</option>
+                                <option value="20000-50000">₹20,000 - ₹50,000</option>
+                                <option value="50000+">Above ₹50,000</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div class="row mt-3">
+                        <div class="col-lg-6">
+                            <label class="form-label fw-bold small">Search Products</label>
+                            <input type="text" class="form-control form-control-sm" id="searchFilter" 
+                                   placeholder="Search by product name or model..." onkeyup="applyFilters()">
+                        </div>
+                        <div class="col-lg-3 col-md-6">
+                            <label class="form-label fw-bold small">Sort By</label>
+                            <select class="form-select form-select-sm" id="sortFilter" onchange="applyFilters()">
+                                <option value="name">Product Name</option>
+                                <option value="price_low">Price: Low to High</option>
+                                <option value="price_high">Price: High to Low</option>
+                                <option value="emi_low">EMI: Low to High</option>
+                                <option value="emi_high">EMI: High to Low</option>
+                                <option value="interest_low">Interest Rate: Low to High</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-3 col-md-6 d-flex align-items-end">
+                            <button type="button" class="btn btn-primary btn-sm w-100" onclick="applyFilters()">
+                                <i class="fas fa-search"></i> Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                <!-- Filter Results Summary -->
+                <div class="mt-3">
+                    <small class="text-muted" id="filterResults">
+                        Showing <span id="visibleProductsCount">{{ loan_products|length }}</span> of {{ loan_products|length }} products
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Loan Products Selection -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Available Products for Analysis</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="productsContainer">
+                    <!-- Products will be dynamically loaded here -->
+                </div>
+                
+                <!-- No Products Found Message -->
+                <div id="noProductsFound" class="text-center py-4" style="display: none;">
+                    <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                    <h5>No Products Found</h5>
+                    <p class="text-muted">Try adjusting your filters to see more results.</p>
+                    <button class="btn btn-outline-primary" onclick="clearAllFilters()">
+                        Clear All Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- AI Analysis & Plan Selection Panel -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>AI Analysis & Plans</h5>
+            </div>
+            <div class="card-body">
+                <div id="selectedProductInfo" class="mb-3" style="display: none;">
+                    <h6>Selected Item:</h6>
+                    <div id="productDetails"></div>
+                    <button id="generatePlansBtn" class="btn btn-success btn-sm w-100 mt-2">
+                        <i class="fas fa-calculator me-1"></i>Generate Financial Plans
+                    </button>
+                </div>
+
+                <!-- Financial Plans Display -->
+                <div id="financialPlansContainer" class="mb-3" style="display: none;">
+                    <h6>Available Financial Plans:</h6>
+                    <div id="plansList" class="plans-selection-box">
+                        <!-- Plans will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Plan Details Display -->
+                <div id="selectedPlanDetails" class="mb-3" style="display: none;">
+                    <div class="alert alert-success">
+                        <h6><i class="fas fa-check-circle me-2"></i>Plan Selected Successfully!</h6>
+                        <div id="planDetailsContent"></div>
+                        <div class="mt-3">
+                            <button id="activatePlanBtn" class="btn btn-primary btn-sm me-2">
+                                <i class="fas fa-play me-1"></i>Activate Plan
+                            </button>
+                            <button id="changePlanBtn" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-exchange-alt me-1"></i>Change Plan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="aiAnalysisResults" class="mb-3">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-lightbulb fa-2x mb-2"></i>
+                        <p>Select an item to get AI-powered financial analysis</p>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="userQuestion" class="form-label">Ask AI Assistant:</label>
+                    <textarea id="userQuestion" class="form-control" rows="3"
+                              placeholder="Ask about affordability, loan terms, or financial advice..."></textarea>
+                    <button id="askAIButton" class="btn btn-primary w-100 mt-2">
+                        <i class="fas fa-paper-plane me-1"></i>Ask AI
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Consultation History -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Consultations</h5>
+            </div>
+            <div class="card-body">
+                {% if consultations %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Bank</th>
+                                <th>EMI</th>
+                                <th>Status</th>
+                                <th>Affordability Score</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for consultation in consultations %}
+                            <tr>
+                                <td>
+                                    {{ consultation.selected_item.model_name|truncatechars:20 }}
+                                    {% if consultation.activated_plan %}
+                                    <br><small class="text-success"><i class="fas fa-play-circle"></i> Active</small>
+                                    {% endif %}
+                                </td>
+                                <td>{{ consultation.selected_item.bank_name }}</td>
+                                <td>
+                                    ₹{{ consultation.selected_item.emi|floatformat:0 }}
+                                    {% if consultation.selected_plan %}
+                                    <br><small class="text-primary">Selected: ₹{{ consultation.selected_plan.emi|floatformat:0 }}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if consultation.activated_plan %}
+                                    <span class="badge bg-success"><i class="fas fa-check"></i> Activated</span>
+                                    {% elif consultation.selected_plan %}
+                                    <span class="badge bg-primary"><i class="fas fa-clock"></i> Selected</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Pending</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge {% if consultation.affordability_score >= 7 %}bg-success{% elif consultation.affordability_score >= 5 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {{ consultation.affordability_score }}/10
+                                    </span>
+                                </td>
+                                <td>{{ consultation.created_at|date:"M d, Y" }}</td>
+                                <td>
+                                    <div class="btn-group" role="group">
+                                        <button class="btn btn-sm btn-outline-primary view-consultation"
+                                                data-consultation-id="{{ consultation.id }}"
+                                                title="View Details">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        {% if not consultation.activated_plan %}
+                                        <button class="btn btn-sm btn-outline-danger delete-consultation"
+                                                data-consultation-id="{{ consultation.id }}"
+                                                title="Delete Consultation">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-history fa-3x text-muted mb-3"></i>
+                    <p class="text-muted">No consultation history yet. Start by selecting an item above!</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Consultation Detail Modal -->
+<div class="modal fade" id="consultationModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Consultation Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="consultationDetails"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Product data from Django template
+const allProducts = [
+    {% for product in loan_products %}
+    {
+        id: {{ product.id }},
+        category: "{{ product.category }}",
+        model_name: "{{ product.model_name|escapejs }}",
+        price: {{ product.price }},
+        emi: {{ product.emi }},
+        bank_name: "{{ product.bank_name|escapejs }}",
+        interest_rate: {{ product.interest_rate }},
+        tenure_months: {{ product.tenure_months }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+let filteredProducts = [];
+let selectedProduct = null;
+
+// Load products on page load - Don't show products initially
+document.addEventListener('DOMContentLoaded', function() {
+    showInitialMessage();
+});
+
+// Show initial message prompting user to use filters
+function showInitialMessage() {
+    const container = document.getElementById('productsContainer');
+    const noProductsMessage = document.getElementById('noProductsFound');
+    
+    container.style.display = 'none';
+    noProductsMessage.innerHTML = `
+        <i class="fas fa-filter fa-3x text-primary mb-3"></i>
+        <h5>Use Filters to Find Products</h5>
+        <p class="text-muted">Please select filters above to view available loan products and get AI-powered financial insights.</p>
+        <p class="text-muted"><small>You can filter by category, price range, bank, EMI range, or search by product name.</small></p>
+    `;
+    noProductsMessage.style.display = 'block';
+    
+    document.getElementById('visibleProductsCount').textContent = '0';
+}
+
+// Load products function
+function loadProducts() {
+    const container = document.getElementById('productsContainer');
+    const noProductsMessage = document.getElementById('noProductsFound');
+    
+    if (filteredProducts.length === 0) {
+        container.style.display = 'none';
+        noProductsMessage.style.display = 'block';
+        return;
+    }
+    
+    container.style.display = 'flex';
+    noProductsMessage.style.display = 'none';
+    
+    container.innerHTML = '';
+    
+    filteredProducts.forEach(product => {
+        const productCard = createProductCard(product);
+        container.appendChild(productCard);
+    });
+    
+    updateResultsCount();
+}
+
+// Create product card
+function createProductCard(product) {
+    const colDiv = document.createElement('div');
+    colDiv.className = 'col-md-6 col-lg-4 mb-3';
+    
+    colDiv.innerHTML = `
+        <div class="card h-100 product-card" data-product-id="${product.id}" 
+             data-product-name="${product.model_name}" 
+             data-product-price="${product.price}" 
+             data-product-emi="${product.emi}">
+            <div class="card-body">
+                <h6 class="card-title">${product.model_name.substring(0, 25)}${product.model_name.length > 25 ? '...' : ''}</h6>
+                <p class="card-text">
+                    <small class="text-muted">${getCategoryDisplayName(product.category)}</small><br>
+                    <strong>₹${Math.round(product.price).toLocaleString('en-IN')}</strong><br>
+                    <span class="text-primary">₹${Math.round(product.emi).toLocaleString('en-IN')}/month</span><br>
+                    <small class="text-info">${product.bank_name}</small>
+                </p>
+                <button class="btn btn-sm btn-primary w-100 select-product-btn">
+                    <i class="fas fa-calculator me-1"></i>Analyze Affordability
+                </button>
+            </div>
+        </div>
+    `;
+    
+    return colDiv;
+}
+
+// Get category display name
+function getCategoryDisplayName(category) {
+    const categoryNames = {
+        'two_wheeler': 'Two Wheeler',
+        'four_wheeler': 'Four Wheeler',
+        'electronics': 'Electronics',
+        'home_loan': 'Home Loan',
+        'personal_loan': 'Personal Loan',
+        'gold_loan': 'Gold Loan'
+    };
+    return categoryNames[category] || category;
+}
+
+// Apply filters
+function applyFilters() {
+    const categoryFilter = document.getElementById('categoryFilter').value;
+    const priceRangeFilter = document.getElementById('priceRangeFilter').value;
+    const bankFilter = document.getElementById('bankFilter').value;
+    const emiRangeFilter = document.getElementById('emiRangeFilter').value;
+    const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+    const sortFilter = document.getElementById('sortFilter').value;
+    
+    // Filter products
+    filteredProducts = allProducts.filter(product => {
+        // Category filter
+        if (categoryFilter && product.category !== categoryFilter) {
+            return false;
+        }
+        
+        // Price range filter
+        if (priceRangeFilter) {
+            if (!isPriceInRange(product.price, priceRangeFilter)) {
+                return false;
+            }
+        }
+        
+        // Bank filter
+        if (bankFilter && product.bank_name !== bankFilter) {
+            return false;
+        }
+        
+        // EMI range filter
+        if (emiRangeFilter) {
+            if (!isEMIInRange(product.emi, emiRangeFilter)) {
+                return false;
+            }
+        }
+        
+        // Search filter
+        if (searchFilter) {
+            const searchText = (product.model_name + ' ' + product.bank_name).toLowerCase();
+            if (!searchText.includes(searchFilter)) {
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    // Sort products
+    sortProducts(sortFilter);
+    
+    // Load filtered products
+    loadProducts();
+}
+
+// Check if price is in range
+function isPriceInRange(price, range) {
+    switch (range) {
+        case '0-50000':
+            return price < 50000;
+        case '50000-100000':
+            return price >= 50000 && price < 100000;
+        case '100000-500000':
+            return price >= 100000 && price < 500000;
+        case '500000-1000000':
+            return price >= 500000 && price < 1000000;
+        case '1000000+':
+            return price >= 1000000;
+        default:
+            return true;
+    }
+}
+
+// Check if EMI is in range
+function isEMIInRange(emi, range) {
+    switch (range) {
+        case '0-5000':
+            return emi < 5000;
+        case '5000-10000':
+            return emi >= 5000 && emi < 10000;
+        case '10000-20000':
+            return emi >= 10000 && emi < 20000;
+        case '20000-50000':
+            return emi >= 20000 && emi < 50000;
+        case '50000+':
+            return emi >= 50000;
+        default:
+            return true;
+    }
+}
+
+// Sort products
+function sortProducts(sortBy) {
+    switch (sortBy) {
+        case 'price_low':
+            filteredProducts.sort((a, b) => a.price - b.price);
+            break;
+        case 'price_high':
+            filteredProducts.sort((a, b) => b.price - a.price);
+            break;
+        case 'emi_low':
+            filteredProducts.sort((a, b) => a.emi - b.emi);
+            break;
+        case 'emi_high':
+            filteredProducts.sort((a, b) => b.emi - a.emi);
+            break;
+        case 'interest_low':
+            filteredProducts.sort((a, b) => a.interest_rate - b.interest_rate);
+            break;
+        case 'name':
+        default:
+            filteredProducts.sort((a, b) => a.model_name.localeCompare(b.model_name));
+            break;
+    }
+}
+
+// Clear all filters
+function clearAllFilters() {
+    document.getElementById('categoryFilter').value = '';
+    document.getElementById('priceRangeFilter').value = '';
+    document.getElementById('bankFilter').value = '';
+    document.getElementById('emiRangeFilter').value = '';
+    document.getElementById('searchFilter').value = '';
+    document.getElementById('sortFilter').value = 'name';
+    
+    // Reset to empty - don't show products until filters are applied
+    filteredProducts = [];
+    showInitialMessage();
+}
+
+// Update results count
+function updateResultsCount() {
+    document.getElementById('visibleProductsCount').textContent = filteredProducts.length;
+    document.getElementById('totalProductsCount').textContent = allProducts.length;
+}
+
+// Product selection
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('select-product-btn') || e.target.closest('.select-product-btn')) {
+        const button = e.target.classList.contains('select-product-btn') ? e.target : e.target.closest('.select-product-btn');
+        const card = button.closest('.product-card');
+        selectedProduct = {
+            id: card.dataset.productId,
+            name: card.dataset.productName,
+            price: parseFloat(card.dataset.productPrice),
+            emi: parseFloat(card.dataset.productEmi)
+        };
+        
+        // Update UI
+        showSelectedProduct(selectedProduct);
+    }
+});
+
+function showSelectedProduct(product) {
+    document.getElementById('selectedProductInfo').style.display = 'block';
+    document.getElementById('productDetails').innerHTML = `
+        <div class="alert alert-primary">
+            <h6 class="mb-1">${product.name}</h6>
+            <small>
+                Price: ₹${product.price.toLocaleString('en-IN')}<br>
+                Monthly EMI: ₹${product.emi.toLocaleString('en-IN')}
+            </small>
+        </div>
+    `;
+}
+
+// AI Chat functionality
+document.getElementById('askAIButton').addEventListener('click', askAI);
+document.getElementById('userQuestion').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        askAI();
+    }
+});
+
+function askAI() {
+    const question = document.getElementById('userQuestion').value.trim();
+    if (!question) return;
+
+    // Show loading
+    document.getElementById('aiAnalysisResults').innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">AI is analyzing...</p>
+        </div>
+    `;
+
+    // Prepare request data
+    const requestData = {
+        message: question,
+        selected_item_id: selectedProduct ? selectedProduct.id : null
+    };
+
+    fetch('/user/ai-chat-api/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showError(data.error);
+        } else {
+            showAIResults(data);
+        }
+    })
+    .catch(error => {
+        showError('Failed to get AI response: ' + error.message);
+    });
+
+    document.getElementById('userQuestion').value = '';
+}
+
+function showAIResults(data) {
+    let html = `<div class="ai-response">${data.reply}</div>`;
+
+    if (data.affordability_analysis && data.affordability_analysis.monthly_income !== undefined && data.affordability_analysis.monthly_income !== null) {
+        const analysis = data.affordability_analysis;
+        html += `
+            <hr>
+            <h6>Affordability Analysis</h6>
+            <div class="row">
+                <div class="col-sm-4">
+                    <small class="text-muted">Monthly Income</small><br>
+                    <strong>₹${analysis.monthly_income.toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="col-sm-4">
+                    <small class="text-muted">EMI</small><br>
+                    <strong>₹${(analysis.emi || 0).toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="col-sm-4">
+                    <small class="text-muted">EMI %</small><br>
+                    <strong>${(analysis.emi_percentage || 0).toFixed(1)}%</strong>
+                </div>
+            </div>
+        `;
+    }
+
+    document.getElementById('aiAnalysisResults').innerHTML = html;
+}
+
+function showError(message) {
+    document.getElementById('aiAnalysisResults').innerHTML = `
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle me-2"></i>${message}
+        </div>
+    `;
+}
+
+// CSRF token helper
+function getCsrfToken() {
+    const cookieMatch = document.cookie.match(/csrftoken=([^;]+)/);
+    return cookieMatch ? cookieMatch[1] : '';
+}
+
+// Financial Plan Management Functions
+document.getElementById('generatePlansBtn').addEventListener('click', generatePlans);
+document.getElementById('activatePlanBtn').addEventListener('click', activatePlan);
+document.getElementById('changePlanBtn').addEventListener('click', changePlan);
+
+function generatePlans() {
+    if (!selectedProduct) return;
+
+    // Show loading
+    document.getElementById('generatePlansBtn').disabled = true;
+    document.getElementById('generatePlansBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
+
+    // Generate plans by asking AI with generate_plans flag
+    const requestData = {
+        message: "Generate financial plans",
+        selected_item_id: selectedProduct.id,
+        generate_plans: true
+    };
+
+    fetch('/user/ai-chat-api/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showError(data.error);
+        } else {
+            displayFinancialPlans(data.financial_plans);
+            document.getElementById('financialPlansContainer').style.display = 'block';
+        }
+    })
+    .catch(error => {
+        showError('Failed to generate plans: ' + error.message);
+    })
+    .finally(() => {
+        document.getElementById('generatePlansBtn').disabled = false;
+        document.getElementById('generatePlansBtn').innerHTML = '<i class="fas fa-calculator me-1"></i>Generate Financial Plans';
+    });
+}
+
+function displayFinancialPlans(plans) {
+    if (!plans || plans.length === 0) return;
+
+    const plansContainer = document.getElementById('plansList');
+    plansContainer.innerHTML = '';
+
+    plans.forEach(plan => {
+        const planCard = document.createElement('div');
+        planCard.className = 'plan-card mb-3 p-3 border rounded';
+        planCard.setAttribute('data-plan-id', plan.plan_id);
+
+        planCard.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h6 class="mb-2">${plan.name}</h6>
+                    <div class="row text-small">
+                        <div class="col-6">
+                            <small class="text-muted">Product Cost:</small><br>
+                            <strong>₹${plan.product_cost.toLocaleString('en-IN')}</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Down Payment:</small><br>
+                            <strong>₹${plan.down_payment.toLocaleString('en-IN')}</strong>
+                        </div>
+                    </div>
+                    <div class="row text-small mt-2">
+                        <div class="col-4">
+                            <small class="text-muted">EMI:</small><br>
+                            <strong class="text-primary">₹${Math.round(plan.emi).toLocaleString('en-IN')}</strong>
+                        </div>
+                        <div class="col-4">
+                            <small class="text-muted">Tenure:</small><br>
+                            <strong>${plan.tenure_months} months</strong>
+                        </div>
+                        <div class="col-4">
+                            <small class="text-muted">Interest:</small><br>
+                            <strong>${plan.interest_rate}%</strong>
+                        </div>
+                    </div>
+                    <div class="row text-small mt-2">
+                        <div class="col-6">
+                            <small class="text-muted">Total Repayment:</small><br>
+                            <strong>₹${Math.round(plan.total_repayment).toLocaleString('en-IN')}</strong>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Remaining Salary:</small><br>
+                            <strong class="text-success">₹${Math.round(plan.remaining_salary).toLocaleString('en-IN')}</strong>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-outline-primary btn-sm select-plan-btn" data-plan='${JSON.stringify(plan).replace(/'/g, "'")}'>
+                    Select Plan
+                </button>
+            </div>
+        `;
+
+        plansContainer.appendChild(planCard);
+    });
+
+    // Add event listeners to plan selection buttons
+    document.querySelectorAll('.select-plan-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const planData = JSON.parse(this.getAttribute('data-plan').replace(/'/g, "'"));
+            selectPlan(planData);
+        });
+    });
+}
+
+function selectPlan(planData) {
+    // Hide plans list and show selected plan details
+    document.getElementById('financialPlansContainer').style.display = 'none';
+    document.getElementById('selectedPlanDetails').style.display = 'block';
+
+    // Store selected plan globally
+    window.selectedPlan = planData;
+
+    // Display plan details
+    document.getElementById('planDetailsContent').innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <small class="text-muted">Product Cost</small>
+                <div class="h5 text-primary">₹${planData.product_cost.toLocaleString('en-IN')}</div>
+            </div>
+            <div class="col-md-6">
+                <small class="text-muted">Monthly EMI</small>
+                <div class="h5 text-success">₹${Math.round(planData.emi).toLocaleString('en-IN')}</div>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-4">
+                <small class="text-muted">Down Payment</small>
+                <div class="fw-bold">₹${planData.down_payment.toLocaleString('en-IN')}</div>
+            </div>
+            <div class="col-md-4">
+                <small class="text-muted">Tenure</small>
+                <div class="fw-bold">${planData.tenure_months} months</div>
+            </div>
+            <div class="col-md-4">
+                <small class="text-muted">Interest Rate</small>
+                <div class="fw-bold">${planData.interest_rate}%</div>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <small class="text-muted">Total Interest</small>
+                <div class="fw-bold">₹${Math.round(planData.total_interest).toLocaleString('en-IN')}</div>
+            </div>
+            <div class="col-md-6">
+                <small class="text-muted">Remaining Salary</small>
+                <div class="fw-bold text-success">₹${Math.round(planData.remaining_salary).toLocaleString('en-IN')}</div>
+            </div>
+        </div>
+    `;
+}
+
+function activatePlan() {
+    if (!window.selectedPlan || !window.currentConsultationId) return;
+
+    document.getElementById('activatePlanBtn').disabled = true;
+    document.getElementById('activatePlanBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Activating...';
+
+    fetch('/user/api/activate-financial-plan/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify({
+            consultation_id: window.currentConsultationId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccessMessage('Plan activated successfully! Monthly tracking is now enabled.');
+            // Refresh the page to show updated consultation history
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showError(data.error || 'Failed to activate plan');
+        }
+    })
+    .catch(error => {
+        showError('Failed to activate plan: ' + error.message);
+    })
+    .finally(() => {
+        document.getElementById('activatePlanBtn').disabled = false;
+        document.getElementById('activatePlanBtn').innerHTML = '<i class="fas fa-play me-1"></i>Activate Plan';
+    });
+}
+
+function changePlan() {
+    // Hide selected plan details and show plans list again
+    document.getElementById('selectedPlanDetails').style.display = 'none';
+    document.getElementById('financialPlansContainer').style.display = 'block';
+    window.selectedPlan = null;
+}
+
+// Update view consultation handler
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('view-consultation') || e.target.closest('.view-consultation')) {
+        const button = e.target.classList.contains('view-consultation') ? e.target : e.target.closest('.view-consultation');
+        const consultationId = button.getAttribute('data-consultation-id');
+        viewConsultationDetails(consultationId);
+    }
+
+    if (e.target.classList.contains('delete-consultation') || e.target.closest('.delete-consultation')) {
+        const button = e.target.classList.contains('delete-consultation') ? e.target : e.target.closest('.delete-consultation');
+        const consultationId = button.getAttribute('data-consultation-id');
+        deleteConsultation(consultationId);
+    }
+});
+
+function viewConsultationDetails(consultationId) {
+    fetch(`/user/api/consultation-details/${consultationId}/`, {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': getCsrfToken()
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showError(data.error);
+        } else {
+            displayConsultationModal(data);
+        }
+    })
+    .catch(error => {
+        showError('Failed to load consultation details: ' + error.message);
+    });
+}
+
+// Update the existing showAIResults to save consultation ID and handle plans
+function showAIResults(data) {
+    // Save consultation ID if available
+    if (data.consultation_id) {
+        window.currentConsultationId = data.consultation_id;
+    }
+
+    let html = `<div class="ai-response">${data.reply}</div>`;
+
+    if (data.affordability_analysis && data.affordability_analysis.monthly_income !== undefined && data.affordability_analysis.monthly_income !== null) {
+        const analysis = data.affordability_analysis;
+        html += `
+            <hr>
+            <h6>Affordability Analysis</h6>
+            <div class="row">
+                <div class="col-sm-4">
+                    <small class="text-muted">Monthly Income</small><br>
+                    <strong>₹${analysis.monthly_income.toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="col-sm-4">
+                    <small class="text-muted">EMI</small><br>
+                    <strong>₹${(analysis.emi || 0).toLocaleString('en-IN')}</strong>
+                </div>
+                <div class="col-sm-4">
+                    <small class="text-muted">EMI %</small><br>
+                    <strong>${(analysis.emi_percentage || 0).toFixed(1)}%</strong>
+                </div>
+            </div>
+        `;
+    }
+
+    // Show financial plans if available
+    if (data.financial_plans && data.financial_plans.length > 0) {
+        displayFinancialPlans(data.financial_plans);
+        document.getElementById('financialPlansContainer').style.display = 'block';
+    }
+
+    document.getElementById('aiAnalysisResults').innerHTML = html;
+}
+
+function displayConsultationModal(data) {
+    const modal = new bootstrap.Modal(document.getElementById('consultationModal'));
+    const content = document.getElementById('consultationDetails');
+
+    let html = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Item Details</h6>
+                <p><strong>${data.item.name}</strong></p>
+                <p>Price: ₹${data.item.price.toLocaleString('en-IN')}</p>
+                <p>Monthly EMI: ₹${data.item.emi.toLocaleString('en-IN')}</p>
+                <p>Bank: ${data.item.bank}</p>
+            </div>
+            <div class="col-md-6">
+                <h6>Consultation Info</h6>
+                <p>Income: ₹${data.consultation.user_income.toLocaleString('en-IN')}</p>
+                <p>Score: ${data.consultation.affordability_score}/10</p>
+                <p>Status: ${data.consultation.activated_plan ? 'Activated' : 'Not Activated'}</p>
+                ${data.consultation.plan_start_date ? `<p>Start Date: ${data.consultation.plan_start_date}</p>` : ''}
+                ${data.consultation.plan_end_date ? `<p>End Date: ${data.consultation.plan_end_date}</p>` : ''}
+            </div>
+        </div>
+    `;
+
+    if (data.selected_plan) {
+        html += `
+            <hr>
+            <h6>Selected Plan</h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <p>EMI: ₹${Math.round(data.selected_plan.emi).toLocaleString('en-IN')}</p>
+                    <p>Tenure: ${data.selected_plan.tenure_months} months</p>
+                    <p>Down Payment: ₹${data.selected_plan.down_payment.toLocaleString('en-IN')}</p>
+                </div>
+                <div class="col-md-6">
+                    <p>Total Repayment: ₹${Math.round(data.selected_plan.total_repayment).toLocaleString('en-IN')}</p>
+                    <p>Interest Rate: ${data.selected_plan.interest_rate}%</p>
+                    <p>Remaining Salary: ₹${Math.round(data.selected_plan.remaining_salary).toLocaleString('en-IN')}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // Add delete button
+    html += `
+        <hr>
+        <div class="text-end">
+            <button class="btn btn-danger btn-sm" onclick="deleteConsultation(${data.consultation.id})">
+                <i class="fas fa-trash me-1"></i>Delete Consultation
+            </button>
+        </div>
+    `;
+
+    content.innerHTML = html;
+    modal.show();
+}
+
+function deleteConsultation(consultationId) {
+    if (!confirm('Are you sure you want to delete this consultation?')) return;
+
+    fetch('/user/api/delete-financial-plan/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify({
+            consultation_id: consultationId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccessMessage('Consultation deleted successfully.');
+            // Close modal and refresh page
+            const modal = bootstrap.Modal.getInstance(document.getElementById('consultationModal'));
+            modal.hide();
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showError(data.error || 'Failed to delete consultation');
+        }
+    })
+    .catch(error => {
+        showError('Failed to delete consultation: ' + error.message);
+    });
+}
+
+function showSuccessMessage(message) {
+    // Create a toast notification or alert
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="fas fa-check-circle me-2"></i>${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+
+    document.body.appendChild(alert);
+
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.remove();
+        }
+    }, 5000);
+}
+
+// Update select plan to save plan selection
+function selectPlan(planData) {
+    // First, save the plan selection to backend
+    if (window.currentConsultationId) {
+        fetch('/user/api/select-financial-plan/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({
+                consultation_id: window.currentConsultationId,
+                selected_plan: planData
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Show success message
+                showSuccessMessage('Thank you for selecting a plan! It has been added to your Recent Consultations.');
+
+                // Update UI
+                document.getElementById('financialPlansContainer').style.display = 'none';
+                document.getElementById('selectedPlanDetails').style.display = 'block';
+
+                // Store selected plan globally
+                window.selectedPlan = planData;
+
+                // Display plan details
+                document.getElementById('planDetailsContent').innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <small class="text-muted">Product Cost</small>
+                            <div class="h5 text-primary">₹${planData.product_cost.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">Monthly EMI</small>
+                            <div class="h5 text-success">₹${Math.round(planData.emi).toLocaleString('en-IN')}</div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-4">
+                            <small class="text-muted">Down Payment</small>
+                            <div class="fw-bold">₹${planData.down_payment.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Tenure</small>
+                            <div class="fw-bold">${planData.tenure_months} months</div>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted">Interest Rate</small>
+                            <div class="fw-bold">${planData.interest_rate}%</div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <small class="text-muted">Total Interest</small>
+                            <div class="fw-bold">₹${Math.round(planData.total_interest).toLocaleString('en-IN')}</div>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">Remaining Salary</small>
+                            <div class="fw-bold text-success">₹${Math.round(planData.remaining_salary).toLocaleString('en-IN')}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                showError(data.error || 'Failed to save plan selection');
+            }
+        })
+        .catch(error => {
+            showError('Failed to save plan selection: ' + error.message);
+        });
+    } else {
+        // Fallback: just update UI
+        document.getElementById('financialPlansContainer').style.display = 'none';
+        document.getElementById('selectedPlanDetails').style.display = 'block';
+        window.selectedPlan = planData;
+
+        // Display plan details
+        document.getElementById('planDetailsContent').innerHTML = `
+            <div class="alert alert-warning">
+                <small>Note: Plan selection will be saved once you complete the consultation.</small>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <small class="text-muted">Product Cost</small>
+                    <div class="h5 text-primary">₹${planData.product_cost.toLocaleString('en-IN')}</div>
+                </div>
+                <div class="col-md-6">
+                    <small class="text-muted">Monthly EMI</small>
+                    <div class="h5 text-success">₹${Math.round(planData.emi).toLocaleString('en-IN')}</div>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-4">
+                    <small class="text-muted">Down Payment</small>
+                    <div class="fw-bold">₹${planData.down_payment.toLocaleString('en-IN')}</div>
+                </div>
+                <div class="col-md-4">
+                    <small class="text-muted">Tenure</small>
+                    <div class="fw-bold">${planData.tenure_months} months</div>
+                </div>
+                <div class="col-md-4">
+                    <small class="text-muted">Interest Rate</small>
+                    <div class="fw-bold">${planData.interest_rate}%</div>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <small class="text-muted">Total Interest</small>
+                    <div class="fw-bold">₹${Math.round(planData.total_interest).toLocaleString('en-IN')}</div>
+                </div>
+                <div class="col-md-6">
+                    <small class="text-muted">Remaining Salary</small>
+                    <div class="fw-bold text-success">₹${Math.round(planData.remaining_salary).toLocaleString('en-IN')}</div>
+                </div>
+            </div>
+        `;
+    }
+}
+</script>
+
+<style>
+/* Filter Section Enhancements */
+.filter-section {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 10px;
+    border: 1px solid #dee2e6;
+}
+
+.filter-section .card-header {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    border-radius: 10px 10px 0 0;
+}
+
+.filter-section .form-select-sm {
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.filter-section .form-select-sm:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.filter-section .form-control-sm {
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.filter-section .form-control-sm:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+.filter-badge {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.product-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.product-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-color: #007bff;
+    background: linear-gradient(135deg, #f8f9ff 0%, #ffffff 100%);
+}
+
+.product-card.selected {
+    border: 2px solid #007bff;
+    background: linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%);
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
+}
+
+.product-card .card-title {
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 8px;
+}
+
+.product-card .card-text strong {
+    color: #28a745;
+    font-size: 1.1em;
+}
+
+.product-card .card-text .text-primary {
+    color: #007bff !important;
+    font-weight: 600;
+}
+
+.product-card .card-text .text-info {
+    color: #17a2b8 !important;
+    font-size: 0.8em;
+}
+
+.product-card .btn {
+    border-radius: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+}
+
+.product-card .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.4);
+}
+
+.ai-response {
+    line-height: 1.6;
+    white-space: pre-wrap;
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    border-left: 4px solid #007bff;
+}
+
+.affordability-score {
+    font-size: 1.5em;
+    font-weight: bold;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Results Summary Styling */
+#filterResults {
+    background: linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%);
+    padding: 8px 15px;
+    border-radius: 20px;
+    border: 1px solid #bbdefb;
+    color: #1565c0;
+    font-weight: 500;
+}
+
+/* Loading States */
+.spinner-border {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Responsive Enhancements */
+@media (max-width: 768px) {
+    .filter-section .row {
+        gap: 15px;
+    }
+    
+    .product-card {
+        margin-bottom: 20px;
+    }
+    
+    .filter-section .card-body {
+        padding: 15px;
+    }
+}
+
+/* Active Filter Indicator */
+.filter-active {
+    position: relative;
+}
+
+.filter-active::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    background: #28a745;
+    border-radius: 50%;
+    border: 2px solid white;
+}
+
+/* Enhanced Buttons */
+.btn-gradient {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+    background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
+}
+
+/* Financial Plans Styling */
+.plans-selection-box {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 10px;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.plan-card {
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.plan-card:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.plan-card .select-plan-btn {
+    white-space: nowrap;
+    border-radius: 20px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.plan-card .select-plan-btn:hover {
+    transform: scale(1.05);
+}
+
+.plan-card h6 {
+    color: #2c3e50;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.plan-card .text-small small {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Plan Details Display */
+#selectedPlanDetails .alert {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 123, 255, 0.1);
+}
+
+#planDetailsContent .row {
+    margin-bottom: 0.5rem;
+}
+
+#planDetailsContent .h5 {
+    font-weight: 600;
+    margin-bottom: 0;
+}
+
+#planDetailsContent small {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6c757d;
+}
+
+/* Consultation History Enhancement */
+.table th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.4em 0.8em;
+}
+
+/* Modal Enhancements */
+.modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    border-bottom: 1px solid #dee2e6;
+    border-radius: 12px 12px 0 0;
+}
+
+.modal-body {
+    padding: 1.5rem;
+}
+
+/* Success/Error Messages */
+.alert {
+    border-radius: 10px;
+    border: none;
+}
+
+.alert-success {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+}
+
+.alert-danger {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    color: #721c24;
+}
+
+.alert-warning {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    color: #856404;
+}
+
+/* Loading Animation Enhancement */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spinner-border {
+    animation: spin 1s linear infinite;
+}
+
+/* Responsive Plan Cards */
+@media (max-width: 768px) {
+    .plan-card .d-flex {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .plan-card .select-plan-btn {
+        align-self: stretch;
+    }
+
+    .plans-selection-box {
+        max-height: 300px;
+    }
+}
+</style>
+{% endblock %}
