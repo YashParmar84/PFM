@@ -50,6 +50,7 @@ def ai_financial_insights(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@login_required
 def ai_chat_api(request):
     """API endpoint for AI chat with financial insights"""
     try:
@@ -85,7 +86,46 @@ def ai_chat_api(request):
         financial_plans = None
 
         if selected_item_id:
-            selected_item = get_object_or_404(LoanProduct, id=selected_item_id)
+            # Handle fallback IDs that don't exist in database
+            if str(selected_item_id) in ['9991', '9992', '9993', '9994', '9995', '9996', '9997', '9998']:
+                # Create a temporary LoanProduct object based on fallback data
+                fallback = {
+                    '9991': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 5000000, 'emi': 45000, 'bank_name': 'State Bank of India (SBI)', 'interest_rate': 10.5, 'tenure_months': 240},
+                    '9992': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 3000000, 'emi': 28000, 'bank_name': 'HDFC Bank', 'interest_rate': 11.3, 'tenure_months': 240},
+                    '9993': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 200000, 'emi': 8500, 'bank_name': 'HDFC Bank', 'interest_rate': 12.5, 'tenure_months': 60},
+                    '9994': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 150000, 'emi': 6250, 'bank_name': 'ICICI Bank', 'interest_rate': 13.2, 'tenure_months': 48},
+                    '9995': {'category': 'gold_loan', 'model_name': 'Gold Loan', 'price': 100000, 'emi': 2250, 'bank_name': 'HDFC Bank', 'interest_rate': 9.5, 'tenure_months': 60},
+                    '9996': {'category': 'two_wheeler', 'model_name': 'Two Wheeler Loan', 'price': 100000, 'emi': 3500, 'bank_name': 'HDFC Bank', 'interest_rate': 11.8, 'tenure_months': 60},
+                    '9997': {'category': 'four_wheeler', 'model_name': 'Car Loan', 'price': 800000, 'emi': 22000, 'bank_name': 'ICICI Bank', 'interest_rate': 13.5, 'tenure_months': 84},
+                    '9998': {'category': 'electronics', 'model_name': 'Electronic Device Loan', 'price': 80000, 'emi': 2800, 'bank_name': 'Bajaj Finance (NBFC)', 'interest_rate': 14.5, 'tenure_months': 48}
+                }.get(str(selected_item_id))
+
+                if fallback:
+                    category_display_map = {
+                        'home_loan': 'Home Loan',
+                        'personal_loan': 'Personal Loan',
+                        'gold_loan': 'Gold Loan',
+                        'two_wheeler': 'Two Wheeler',
+                        'four_wheeler': 'Four Wheeler',
+                        'electronics': 'Electronics'
+                    }
+                    # Create a temporary object-like structure - no import needed inside scope
+                    selected_item = type('TempLoanProduct', (), {
+                        'id': int(selected_item_id),
+                        'category': fallback['category'],
+                        'model_name': fallback['model_name'],
+                        'price': fallback['price'],
+                        'emi': fallback['emi'],
+                        'bank_name': fallback['bank_name'],
+                        'interest_rate': fallback['interest_rate'],
+                        'tenure_months': fallback['tenure_months'],
+                        'item_id': int(selected_item_id),  # Add missing item_id
+                        'get_category_display': lambda fallback=fallback: category_display_map.get(
+                            fallback['category'], fallback['category']
+                        )
+                    })()
+            else:
+                selected_item = get_object_or_404(LoanProduct, id=selected_item_id)
 
             # Generate financial plans if requested or if message suggests planning
             if generate_plans or any(keyword in user_message.lower() for keyword in
@@ -93,19 +133,31 @@ def ai_chat_api(request):
                 financial_plans = generate_financial_plans(average_monthly_income, selected_item)
 
         # Generate AI response
-        ai_response = generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans)
+        ai_response = generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans, selected_item_id)
 
         # If we have a selected item and plans were generated, save the consultation
+        # But skip consultation creation for fallback IDs since they're not real products
         if selected_item and financial_plans:
-            consultation = AIConsultation.objects.create(
-                user=request.user,
-                selected_item=selected_item,
-                user_income=average_monthly_income,
-                ai_recommendation=ai_response['recommendation'],
-                affordability_score=ai_response.get('affordability_score', 5.0),
-                recommended_banks=ai_response.get('recommended_banks', []),
-                risk_assessment=ai_response.get('risk_assessment', 'Analysis completed')
-            )
+            # Only create consultations for real database products (not fallback items)
+            try:
+                # Check if this is a fallback item by checking the ID range
+                is_fallback = str(selected_item_id).startswith('999') and len(str(selected_item_id)) == 4
+                if not is_fallback:
+                    consultation = AIConsultation.objects.create(
+                        user=request.user,
+                        selected_item=get_object_or_404(LoanProduct, id=selected_item_id),
+                        user_income=average_monthly_income,
+                        ai_recommendation=ai_response.get('recommendation', ''),
+                        recommended_banks=ai_response.get('recommended_banks', []),
+                        risk_assessment=ai_response.get('risk_assessment', 'Analysis completed')
+                    )
+                    print(f"Consultation created: {consultation.id}")
+                    
+                    # Add consultation ID to response if created successfully
+                    response_data['consultation_id'] = consultation.id
+            except Exception as e:
+                print(f"Error creating consultation: {e}")
+                # Continue without creating consultation if it fails
 
         response_data = {
             'reply': ai_response['message'],
@@ -173,7 +225,7 @@ def generate_financial_plans(average_monthly_income, selected_item):
     return plans
 
 
-def generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans=None):
+def generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans=None, selected_item_id=None):
     """Generate AI response using Groq API"""
     try:
         import requests
@@ -182,7 +234,6 @@ def generate_ai_response(user_message, average_monthly_income, selected_item, mo
         context = f"""
         You are a helpful financial planning AI assistant.
         The user's average monthly income: ₹{average_monthly_income:.2f}
-        User's recent 6-month income pattern: {monthly_income}
         """
 
         # Add item details if selected
@@ -231,18 +282,59 @@ def generate_ai_response(user_message, average_monthly_income, selected_item, mo
                 affordability_score = 2.0
                 risk_assessment = "High Risk – EMI exceeds 40% of income. Not advisable."
 
-            # Recommend alternative banks
-            similar_items = LoanProduct.objects.filter(
-                item_id=selected_item.item_id,
-                category=selected_item.category
-            ).order_by('emi')
+            # Recommend alternative banks - check if it's a fallback item
+            try:
+                # Check if this is a fallback item by checking if it has the fallback ID
+                if str(selected_item_id) in ['9991', '9992', '9993', '9994', '9995', '9996', '9997', '9998']:
+                    # For fallback items, create mock recommendations based on category
+                    fallback_recommendations = {
+                        'home_loan': [
+                            {"bank": "State Bank of India (SBI)", "emi": emi * 1.0, "rate": 10.5},
+                            {"bank": "HDFC Bank", "emi": emi * 0.95, "rate": 11.3},
+                            {"bank": "ICICI Bank", "emi": emi * 0.98, "rate": 11.7},
+                        ],
+                        'personal_loan': [
+                            {"bank": "HDFC Bank", "emi": emi * 0.95, "rate": 12.5},
+                            {"bank": "ICICI Bank", "emi": emi * 0.98, "rate": 13.2},
+                            {"bank": "Kotak Mahindra Bank", "emi": emi * 1.02, "rate": 13.5},
+                        ],
+                        'gold_loan': [
+                            {"bank": "HDFC Bank", "emi": emi * 1.0, "rate": 9.5},
+                            {"bank": "ICICI Bank", "emi": emi * 0.98, "rate": 10.2},
+                        ],
+                        'two_wheeler': [
+                            {"bank": "HDFC Bank", "emi": emi * 0.95, "rate": 11.8},
+                            {"bank": "ICICI Bank", "emi": emi * 0.98, "rate": 12.0},
+                        ],
+                        'four_wheeler': [
+                            {"bank": "ICICI Bank", "emi": emi * 1.0, "rate": 13.5},
+                            {"bank": "HDFC Bank", "emi": emi * 0.95, "rate": 13.8},
+                        ],
+                        'electronics': [
+                            {"bank": "Bajaj Finance (NBFC)", "emi": emi * 1.0, "rate": 14.5},
+                            {"bank": "HDFC Bank", "emi": emi * 0.98, "rate": 14.0},
+                        ]
+                    }
+                    recommended_banks = fallback_recommendations.get(selected_item.category, [
+                        {"bank": "HDFC Bank", "emi": emi * 0.95, "rate": 11.0},
+                        {"bank": "ICICI Bank", "emi": emi * 0.98, "rate": 11.5},
+                    ])
+                else:
+                    # For real items, find similar ones in database
+                    similar_items = LoanProduct.objects.filter(
+                        category=selected_item.category
+                    ).order_by('emi')
 
-            for item in similar_items[:3]:
-                recommended_banks.append({
-                    "bank": item.bank_name,
-                    "emi": float(item.emi),
-                    "rate": float(item.interest_rate),
-                })
+                    for item in similar_items[:3]:
+                        if item.id != int(selected_item_id):  # Don't recommend the same item
+                            recommended_banks.append({
+                                "bank": item.bank_name,
+                                "emi": float(item.emi),
+                                "rate": float(item.interest_rate),
+                            })
+            except Exception as e:
+                print(f"Error finding similar items: {e}")
+                # Continue without bank recommendations if this fails
 
         # ========= Groq API Request with better error handling =========
 

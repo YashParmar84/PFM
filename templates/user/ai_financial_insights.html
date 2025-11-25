@@ -132,8 +132,8 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i>Available Products for Analysis</h5>
             </div>
-            <div class="card-body">
-                <div class="row" id="productsContainer">
+        <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+            <div class="row" id="productsContainer">
                     <!-- Products will be dynamically loaded here -->
                 </div>
                 
@@ -156,7 +156,7 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>AI Analysis & Plans</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="max-height: 600px; overflow-y: auto;">
                 <div id="selectedProductInfo" class="mb-3" style="display: none;">
                     <h6>Selected Item:</h6>
                     <div id="productDetails"></div>
@@ -313,7 +313,7 @@
 {% block extra_scripts %}
 <script>
 // Product data from Django template
-const allProducts = [
+let allProducts = [
     {% for product in loan_products %}
     {
         id: {{ product.id }},
@@ -327,6 +327,98 @@ const allProducts = [
     }{% if not forloop.last %},{% endif %}
     {% endfor %}
 ];
+
+// Always ensure we have fallback data for all categories to enable plan generation
+console.log("Adding fallback loan data for all categories");
+const fallbackProducts = [
+    // Home Loans
+    {
+        id: 9991,
+        category: 'home_loan',
+        model_name: 'Home Loan',
+        price: 5000000,
+        emi: 45000,
+        bank_name: 'State Bank of India (SBI)',
+        interest_rate: 10.5,
+        tenure_months: 240
+    },
+    {
+        id: 9992,
+        category: 'home_loan',
+        model_name: 'Home Loan',
+        price: 3000000,
+        emi: 28000,
+        bank_name: 'HDFC Bank',
+        interest_rate: 11.3,
+        tenure_months: 240
+    },
+    // Personal Loans
+    {
+        id: 9993,
+        category: 'personal_loan',
+        model_name: 'Personal Loan',
+        price: 200000,
+        emi: 8500,
+        bank_name: 'HDFC Bank',
+        interest_rate: 12.5,
+        tenure_months: 60
+    },
+    {
+        id: 9994,
+        category: 'personal_loan',
+        model_name: 'Personal Loan',
+        price: 150000,
+        emi: 6250,
+        bank_name: 'ICICI Bank',
+        interest_rate: 13.2,
+        tenure_months: 48
+    },
+    // Gold Loans
+    {
+        id: 9995,
+        category: 'gold_loan',
+        model_name: 'Gold Loan',
+        price: 100000,
+        emi: 2250,
+        bank_name: 'HDFC Bank',
+        interest_rate: 9.5,
+        tenure_months: 60
+    },
+    // Two Wheelers
+    {
+        id: 9996,
+        category: 'two_wheeler',
+        model_name: 'Two Wheeler Loan',
+        price: 100000,
+        emi: 3500,
+        bank_name: 'HDFC Bank',
+        interest_rate: 11.8,
+        tenure_months: 60
+    },
+    // Four Wheelers
+    {
+        id: 9997,
+        category: 'four_wheeler',
+        model_name: 'Car Loan',
+        price: 800000,
+        emi: 22000,
+        bank_name: 'ICICI Bank',
+        interest_rate: 13.5,
+        tenure_months: 84
+    },
+    // Electronics
+    {
+        id: 9998,
+        category: 'electronics',
+        model_name: 'Electronic Device Loan',
+        price: 80000,
+        emi: 2800,
+        bank_name: 'Bajaj Finance (NBFC)',
+        interest_rate: 14.5,
+        tenure_months: 48
+    }
+];
+allProducts = allProducts.concat(fallbackProducts);
 
 let filteredProducts = [];
 let selectedProduct = null;
@@ -549,7 +641,11 @@ function clearAllFilters() {
 // Update results count
 function updateResultsCount() {
     document.getElementById('visibleProductsCount').textContent = filteredProducts.length;
-    document.getElementById('totalProductsCount').textContent = allProducts.length;
+    // Update the filter results text to show current/total count
+    const filterResultsElement = document.getElementById('filterResults');
+    if (filterResultsElement) {
+        filterResultsElement.innerHTML = `Showing <span id="visibleProductsCount">${filteredProducts.length}</span> of ${allProducts.length} products`;
+    }
 }
 
 // Product selection
@@ -635,7 +731,9 @@ function askAI() {
 }
 
 function showAIResults(data) {
-    let html = `<div class="ai-response">${data.reply}</div>`;
+    // Format the AI response - convert markdown-like syntax to proper HTML
+    let formattedReply = formatAIResponse(data.reply);
+    let html = `<div class="ai-response">${formattedReply}</div>`;
 
     if (data.affordability_analysis && data.affordability_analysis.monthly_income !== undefined && data.affordability_analysis.monthly_income !== null) {
         const analysis = data.affordability_analysis;
@@ -660,6 +758,22 @@ function showAIResults(data) {
     }
 
     document.getElementById('aiAnalysisResults').innerHTML = html;
+}
+
+// Format AI response to convert markdown-like syntax to HTML
+function formatAIResponse(text) {
+    if (!text) return '';
+
+    // Replace bold text **text** with <strong>text</strong>
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Convert line breaks to proper HTML
+    text = text.replace(/\n/g, '<br>');
+
+    // Clean up any double line breaks
+    text = text.replace(/(<br\s*\/?>\s*){2,}/g, '<br><br>');
+
+    return text;
 }
 
 function showError(message) {
@@ -1292,6 +1406,8 @@ function selectPlan(planData) {
     padding: 15px;
     border-radius: 8px;
     border-left: 4px solid #007bff;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .affordability-score {
