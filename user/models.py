@@ -137,12 +137,14 @@ class UserActivity(models.Model):
 class AIConsultation(models.Model):
     """Model to store AI consultation history"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    selected_item = models.ForeignKey(LoanProduct, on_delete=models.CASCADE)
+    selected_item = models.ForeignKey(LoanProduct, on_delete=models.CASCADE, null=True, blank=True)
     user_income = models.DecimalField(max_digits=10, decimal_places=2)
     ai_recommendation = models.TextField()
     affordability_score = models.DecimalField(max_digits=5, decimal_places=2)
     recommended_banks = models.JSONField()  # Store list of recommended banks
     risk_assessment = models.TextField()
+    # Fallback data for virtual products (when selected_item is null)
+    fallback_item_data = models.JSONField(blank=True, null=True)  # Store fallback product details
     # New fields for plan management
     selected_plan = models.JSONField(blank=True, null=True)  # Store selected plan details
     activated_plan = models.BooleanField(default=False)  # Track if plan is activated

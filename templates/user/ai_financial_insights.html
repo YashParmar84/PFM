@@ -160,7 +160,7 @@
                 <div id="selectedProductInfo" class="mb-3" style="display: none;">
                     <h6>Selected Item:</h6>
                     <div id="productDetails"></div>
-                    <button id="generatePlansBtn" class="btn btn-success btn-sm w-100 mt-2">
+                    <button id="generatePlansBtn" class="btn btn-success btn-sm w-100 mt-2" disabled>
                         <i class="fas fa-calculator me-1"></i>Generate Financial Plans
                     </button>
                 </div>
@@ -216,7 +216,7 @@
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Consultations</h5>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="max-height: 600px; overflow-y: auto;">
                 {% if consultations %}
                 <div class="table-responsive">
                     <table class="table table-hover">
@@ -235,15 +235,29 @@
                             {% for consultation in consultations %}
                             <tr>
                                 <td>
-                                    {{ consultation.selected_item.model_name|truncatechars:20 }}
+                                    {% if consultation.selected_item %}
+                                        {{ consultation.selected_item.model_name|truncatechars:20 }}
+                                    {% else %}
+                                        {{ consultation.fallback_item_data.model_name|truncatechars:20 }}
+                                    {% endif %}
                                     {% if consultation.activated_plan %}
                                     <br><small class="text-success"><i class="fas fa-play-circle"></i> Active</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ consultation.selected_item.bank_name }}</td>
                                 <td>
-                                    ₹{{ consultation.selected_item.emi|floatformat:0 }}
-                                    {% if consultation.selected_plan %}
+                                    {% if consultation.selected_item %}
+                                        {{ consultation.selected_item.bank_name }}
+                                    {% else %}
+                                        {{ consultation.fallback_item_data.bank_name }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if consultation.selected_item %}
+                                        ₹{{ consultation.selected_item.emi|floatformat:0 }}
+                                    {% else %}
+                                        ₹{{ consultation.fallback_item_data.emi|floatformat:0 }}
+                                    {% endif %}
+                                    {% if consultation.selected_plan and consultation.selected_plan.emi %}
                                     <br><small class="text-primary">Selected: ₹{{ consultation.selected_plan.emi|floatformat:0 }}</small>
                                     {% endif %}
                                 </td>
@@ -676,6 +690,9 @@ function showSelectedProduct(product) {
             </small>
         </div>
     `;
+
+    // Enable the generate plans button when product is selected
+    document.getElementById('generatePlansBtn').disabled = false;
 }
 
 // AI Chat functionality
@@ -798,36 +815,91 @@ document.getElementById('changePlanBtn').addEventListener('click', changePlan);
 function generatePlans() {
     if (!selectedProduct) return;
 
+    console.log('🛠️ generatePlans called - selected product:', selectedProduct);
+
     // Show loading
     document.getElementById('generatePlansBtn').disabled = true;
-    document.getElementById('generatePlansBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
+    document.getElementById('generatePlansBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Creating Consultation...';
 
-    // Generate plans by asking AI with generate_plans flag
-    const requestData = {
-        message: "Generate financial plans",
-        selected_item_id: selectedProduct.id,
-        generate_plans: true
+    // Step 1: Create consultation record first
+    console.log('📤 Step 1: Creating consultation for selected_item_id:', selectedProduct.id);
+
+    const consultationData = {
+        selected_item_id: selectedProduct.id
     };
 
-    fetch('/user/ai-chat-api/', {
+    fetch('/user/api/create-consultation/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCsrfToken()
         },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify(consultationData)
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            showError(data.error);
-        } else {
-            displayFinancialPlans(data.financial_plans);
-            document.getElementById('financialPlansContainer').style.display = 'block';
+    .then(response => {
+        console.log('📡 Consultation creation response status:', response.status);
+        return response.json();
+    })
+    .then(consultationResponse => {
+        console.log('✅ Consultation created:', consultationResponse);
+
+        if (consultationResponse.error) {
+            throw new Error(consultationResponse.error);
         }
+
+        if (!consultationResponse.consultation_id) {
+            throw new Error('No consultation ID returned');
+        }
+
+        // Set the consultation ID
+        window.currentConsultationId = consultationResponse.consultation_id;
+        console.log('📋 Consultation ID set:', window.currentConsultationId);
+
+        // Show success message
+        showSuccessMessage('Consultation created successfully! Now generating your plans...');
+
+        // Step 2: Generate financial plans for the consultation
+        document.getElementById('generatePlansBtn').innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating Plans...';
+        console.log('📤 Step 2: Generating plans for consultation ID:', window.currentConsultationId);
+
+        const plansData = {
+            consultation_id: window.currentConsultationId
+        };
+
+        return fetch('/user/api/generate-financial-plans/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(plansData)
+        });
+    })
+    .then(response => {
+        console.log('📡 Plans generation response status:', response.status);
+        return response.json();
+    })
+    .then(plansResponse => {
+        console.log('✅ Plans generated:', plansResponse);
+
+        if (plansResponse.error) {
+            throw new Error(plansResponse.error);
+        }
+
+        if (!plansResponse.financial_plans) {
+            throw new Error('No financial plans returned');
+        }
+
+        // Display the plans
+        displayFinancialPlans(plansResponse.financial_plans);
+        document.getElementById('financialPlansContainer').style.display = 'block';
+
+        showSuccessMessage('Your personalized financial plans have been generated! Please select the plan that works best for you.');
     })
     .catch(error => {
-        showError('Failed to generate plans: ' + error.message);
+        console.error('❌ Error in generatePlans workflow:', error);
+        showError('Failed to generate financial plans: ' + error.message);
+        window.currentConsultationId = null; // Reset on error
     })
     .finally(() => {
         document.getElementById('generatePlansBtn').disabled = false;
@@ -903,52 +975,7 @@ function displayFinancialPlans(plans) {
     });
 }
 
-function selectPlan(planData) {
-    // Hide plans list and show selected plan details
-    document.getElementById('financialPlansContainer').style.display = 'none';
-    document.getElementById('selectedPlanDetails').style.display = 'block';
 
-    // Store selected plan globally
-    window.selectedPlan = planData;
-
-    // Display plan details
-    document.getElementById('planDetailsContent').innerHTML = `
-        <div class="row">
-            <div class="col-md-6">
-                <small class="text-muted">Product Cost</small>
-                <div class="h5 text-primary">₹${planData.product_cost.toLocaleString('en-IN')}</div>
-            </div>
-            <div class="col-md-6">
-                <small class="text-muted">Monthly EMI</small>
-                <div class="h5 text-success">₹${Math.round(planData.emi).toLocaleString('en-IN')}</div>
-            </div>
-        </div>
-        <div class="row mt-3">
-            <div class="col-md-4">
-                <small class="text-muted">Down Payment</small>
-                <div class="fw-bold">₹${planData.down_payment.toLocaleString('en-IN')}</div>
-            </div>
-            <div class="col-md-4">
-                <small class="text-muted">Tenure</small>
-                <div class="fw-bold">${planData.tenure_months} months</div>
-            </div>
-            <div class="col-md-4">
-                <small class="text-muted">Interest Rate</small>
-                <div class="fw-bold">${planData.interest_rate}%</div>
-            </div>
-        </div>
-        <div class="row mt-3">
-            <div class="col-md-6">
-                <small class="text-muted">Total Interest</small>
-                <div class="fw-bold">₹${Math.round(planData.total_interest).toLocaleString('en-IN')}</div>
-            </div>
-            <div class="col-md-6">
-                <small class="text-muted">Remaining Salary</small>
-                <div class="fw-bold text-success">₹${Math.round(planData.remaining_salary).toLocaleString('en-IN')}</div>
-            </div>
-        </div>
-    `;
-}
 
 function activatePlan() {
     if (!window.selectedPlan || !window.currentConsultationId) return;
@@ -1029,12 +1056,30 @@ function viewConsultationDetails(consultationId) {
 
 // Update the existing showAIResults to save consultation ID and handle plans
 function showAIResults(data) {
-    // Save consultation ID if available
-    if (data.consultation_id) {
+    console.log('📨 showAIResults called with data:', data);
+
+    // CRITICAL: Always preserve existing consultation_id - never overwrite with null/undefined/invalid
+    if (data.consultation_id !== null && data.consultation_id !== undefined && data.consultation_id !== '') {
+        const isNewToFrontend = !window.currentConsultationId || window.currentConsultationId !== data.consultation_id;
+        if (isNewToFrontend) {
+            console.log('🔗 Received consultation ID from backend:', data.consultation_id);
+        } else {
+            console.log('✅ Consultation ID confirmed (already set):', data.consultation_id);
+        }
         window.currentConsultationId = data.consultation_id;
+    } else {
+        console.log('⚠️ No valid consultation_id in response - preserving existing ID:', window.currentConsultationId || 'None');
+        // NEVER clear window.currentConsultationId - consult this value should remain stable
     }
 
-    let html = `<div class="ai-response">${data.reply}</div>`;
+    // Additional safety check
+    if (!window.currentConsultationId) {
+        console.log('🚨 WARNING: No consultation ID is currently set globally!');
+    }
+
+    // Format the AI response - convert markdown-like syntax to proper HTML
+    let formattedReply = formatAIResponse(data.reply);
+    let html = `<div class="ai-response">${formattedReply}</div>`;
 
     if (data.affordability_analysis && data.affordability_analysis.monthly_income !== undefined && data.affordability_analysis.monthly_income !== null) {
         const analysis = data.affordability_analysis;
@@ -1176,87 +1221,121 @@ function showSuccessMessage(message) {
 
 // Update select plan to save plan selection
 function selectPlan(planData) {
-    // First, save the plan selection to backend
-    if (window.currentConsultationId) {
+    console.log('🔧 selectPlan function called with planData:', planData);
+
+    if (!planData) {
+        console.error('❌ No plan data provided');
+        showError('Plan data is missing');
+        return;
+    }
+
+    // Check if we have a valid consultation ID
+    if (window.currentConsultationId && window.currentConsultationId !== null) {
+        console.log('📡 Sending data to backend for consultation ID:', window.currentConsultationId);
+
+        // Validate consultation ID is a number
+        const consultationIdNum = parseInt(window.currentConsultationId);
+        if (isNaN(consultationIdNum)) {
+            console.error('❌ Invalid consultation ID:', window.currentConsultationId);
+            showError('Invalid consultation ID');
+            return;
+        }
+
+        const requestData = {
+            consultation_id: consultationIdNum,
+            selected_plan: planData
+        };
+
+        console.log('📤 Request data being sent:', requestData);
+
+        // Show loading state
+        showPlanSelectionLoading(true);
+
         fetch('/user/api/select-financial-plan/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCsrfToken()
             },
-            body: JSON.stringify({
-                consultation_id: window.currentConsultationId,
-                selected_plan: planData
-            })
+            body: JSON.stringify(requestData)
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('📡 API Response status:', response.status);
+            return response.json().catch(() => ({ error: 'Invalid JSON response' }));
+        })
         .then(data => {
-            if (data.success) {
+            console.log('✅ Backend response data:', data);
+
+            if (data.success && data.success === true) {
+                console.log('🎯 Plan selection saved successfully!');
+
                 // Show success message
-                showSuccessMessage('Thank you for selecting a plan! It has been added to your Recent Consultations.');
+                showSuccessMessage(data.message || 'Thank you for selecting a plan! It has been added to your Recent Consultations.');
 
                 // Update UI
-                document.getElementById('financialPlansContainer').style.display = 'none';
-                document.getElementById('selectedPlanDetails').style.display = 'block';
+                updatePlanSelectionUI(planData);
 
-                // Store selected plan globally
-                window.selectedPlan = planData;
-
-                // Display plan details
-                document.getElementById('planDetailsContent').innerHTML = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <small class="text-muted">Product Cost</small>
-                            <div class="h5 text-primary">₹${planData.product_cost.toLocaleString('en-IN')}</div>
-                        </div>
-                        <div class="col-md-6">
-                            <small class="text-muted">Monthly EMI</small>
-                            <div class="h5 text-success">₹${Math.round(planData.emi).toLocaleString('en-IN')}</div>
-                        </div>
-                    </div>
-                    <div class="row mt-3">
-                        <div class="col-md-4">
-                            <small class="text-muted">Down Payment</small>
-                            <div class="fw-bold">₹${planData.down_payment.toLocaleString('en-IN')}</div>
-                        </div>
-                        <div class="col-md-4">
-                            <small class="text-muted">Tenure</small>
-                            <div class="fw-bold">${planData.tenure_months} months</div>
-                        </div>
-                        <div class="col-md-4">
-                            <small class="text-muted">Interest Rate</small>
-                            <div class="fw-bold">${planData.interest_rate}%</div>
-                        </div>
-                    </div>
-                    <div class="row mt-3">
-                        <div class="col-md-6">
-                            <small class="text-muted">Total Interest</small>
-                            <div class="fw-bold">₹${Math.round(planData.total_interest).toLocaleString('en-IN')}</div>
-                        </div>
-                        <div class="col-md-6">
-                            <small class="text-muted">Remaining Salary</small>
-                            <div class="fw-bold text-success">₹${Math.round(planData.remaining_salary).toLocaleString('en-IN')}</div>
-                        </div>
-                    </div>
-                `;
             } else {
+                console.error('❌ Backend returned error:', data.error || 'Unknown error');
                 showError(data.error || 'Failed to save plan selection');
+
+                // Still show the plan in UI but with warning
+                updatePlanSelectionUI(planData, true);
             }
         })
         .catch(error => {
-            showError('Failed to save plan selection: ' + error.message);
+            console.error('🚨 Fetch error:', error);
+            showError('Network error: Failed to save plan selection. Please try again.');
+
+            // Still show the plan in UI but with warning
+            updatePlanSelectionUI(planData, true);
+        })
+        .finally(() => {
+            showPlanSelectionLoading(false);
         });
     } else {
-        // Fallback: just update UI
-        document.getElementById('financialPlansContainer').style.display = 'none';
-        document.getElementById('selectedPlanDetails').style.display = 'block';
-        window.selectedPlan = planData;
+        console.log('⚠️ No consultation ID available, but plan selected');
+        console.log('Current consultation ID:', window.currentConsultationId);
 
-        // Display plan details
-        document.getElementById('planDetailsContent').innerHTML = `
-            <div class="alert alert-warning">
-                <small>Note: Plan selection will be saved once you complete the consultation.</small>
-            </div>
+        // Still show the plan in UI but with warning
+        updatePlanSelectionUI(planData, true);
+    }
+}
+
+function showPlanSelectionLoading(loading) {
+    // Add loading state to plan selection buttons
+    const planButtons = document.querySelectorAll('.select-plan-btn');
+    planButtons.forEach(btn => {
+        btn.disabled = loading;
+        if (loading) {
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Selecting...';
+        } else {
+            btn.innerHTML = 'Select Plan';
+        }
+    });
+}
+
+function updatePlanSelectionUI(planData, showWarning = false) {
+    const financialPlansContainer = document.getElementById('financialPlansContainer');
+    const selectedPlanDetails = document.getElementById('selectedPlanDetails');
+    const planDetailsContent = document.getElementById('planDetailsContent');
+
+    if (financialPlansContainer) financialPlansContainer.style.display = 'none';
+    if (selectedPlanDetails) selectedPlanDetails.style.display = 'block';
+    window.selectedPlan = planData;
+
+    // Display plan details only if element exists
+    if (planDetailsContent) {
+        let warningHtml = '';
+        if (showWarning) {
+            warningHtml = `
+                <div class="alert alert-warning mb-3">
+                    <small><i class="fas fa-exclamation-triangle me-1"></i>Plan saved locally but not synchronized to database yet.</small>
+                </div>
+            `;
+        }
+
+        planDetailsContent.innerHTML = warningHtml + `
             <div class="row">
                 <div class="col-md-6">
                     <small class="text-muted">Product Cost</small>

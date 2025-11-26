@@ -57,33 +57,31 @@ def ai_chat_api(request):
         data = json.loads(request.body)
         user_message = data.get('message', '').strip()
         selected_item_id = data.get('selected_item_id')
-        generate_plans = data.get('generate_plans', False)
 
         if not user_message:
             return JsonResponse({'error': 'Message is required'}, status=400)
 
-        # Get user's income data for last 6 months
-        six_months_ago = datetime.now() - timedelta(days=180)
+        # Always include the latest consultation_id for this user if it exists
+        current_consultation = None
+        consultation_id = None
 
-        income_transactions = Transaction.objects.filter(
-            user=request.user,
-            transaction_type='income',
-            date__gte=six_months_ago
-        )
+        try:
+            # Get the most recent consultation for this user (regardless of completion status)
+            current_consultation = AIConsultation.objects.filter(
+                user=request.user
+            ).order_by('-created_at').first()
 
-        # Calculate average monthly income
-        monthly_income = {}
-        for transaction in income_transactions:
-            month_key = f"{transaction.date.year}-{transaction.date.month}"
-            if month_key not in monthly_income:
-                monthly_income[month_key] = 0
-            monthly_income[month_key] += float(transaction.amount)
+            if current_consultation:
+                consultation_id = current_consultation.id
+                print(f"🔗 DEBUG: Found current_consultation ID: {consultation_id}")
+            else:
+                print("🔗 DEBUG: No existing consultation found for user")
 
-        average_monthly_income = sum(monthly_income.values()) / len(monthly_income) if monthly_income else 0
+        except Exception as e:
+            print(f"🔗 DEBUG: Error getting consultation: {e}")
 
         # Get selected loan product if provided
         selected_item = None
-        financial_plans = None
 
         if selected_item_id:
             # Handle fallback IDs that don't exist in database
@@ -127,50 +125,59 @@ def ai_chat_api(request):
             else:
                 selected_item = get_object_or_404(LoanProduct, id=selected_item_id)
 
-            # Generate financial plans if requested or if message suggests planning
-            if generate_plans or any(keyword in user_message.lower() for keyword in
-                ['plan', 'finance', 'emi', 'loan', 'purchase', 'buy', 'afford']):
-                financial_plans = generate_financial_plans(average_monthly_income, selected_item)
+        # Calculate monthly income data for the last 6 months
+        six_months_ago = datetime.now() - timedelta(days=180)
+        monthly_income = {}
 
-        # Generate AI response
-        ai_response = generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans, selected_item_id)
+        income_transactions_agg = Transaction.objects.filter(
+            user=request.user,
+            transaction_type='income',
+            date__gte=six_months_ago
+        )
+        for transaction in income_transactions_agg:
+            month_key = f"{transaction.date.year}-{transaction.date.month}"
+            if month_key not in monthly_income:
+                monthly_income[month_key] = 0
+            monthly_income[month_key] += float(transaction.amount)
 
-        # If we have a selected item and plans were generated, save the consultation
-        # But skip consultation creation for fallback IDs since they're not real products
-        if selected_item and financial_plans:
-            # Only create consultations for real database products (not fallback items)
-            try:
-                # Check if this is a fallback item by checking the ID range
-                is_fallback = str(selected_item_id).startswith('999') and len(str(selected_item_id)) == 4
-                if not is_fallback:
-                    consultation = AIConsultation.objects.create(
-                        user=request.user,
-                        selected_item=get_object_or_404(LoanProduct, id=selected_item_id),
-                        user_income=average_monthly_income,
-                        ai_recommendation=ai_response.get('recommendation', ''),
-                        recommended_banks=ai_response.get('recommended_banks', []),
-                        risk_assessment=ai_response.get('risk_assessment', 'Analysis completed')
-                    )
-                    print(f"Consultation created: {consultation.id}")
-                    
-                    # Add consultation ID to response if created successfully
-                    response_data['consultation_id'] = consultation.id
-            except Exception as e:
-                print(f"Error creating consultation: {e}")
-                # Continue without creating consultation if it fails
+        # Calculate average monthly income safely
+        average_monthly_income = 0.0
+        if monthly_income:
+            total_income = sum(monthly_income.values())
+            average_monthly_income = total_income / len(monthly_income)
+
+        # Generate AI response with proper financial insights and suggestions
+        ai_response = generate_ai_response(
+            user_message=user_message,
+            average_monthly_income=average_monthly_income,
+            selected_item=selected_item,
+            monthly_income=monthly_income,
+            selected_item_id=selected_item_id if selected_item_id else None
+        )
 
         response_data = {
-            'reply': ai_response['message'],
+            'reply': ai_response.get('message', 'I understand your question. Let me analyze your financial situation and provide personalized recommendations.'),
             'has_item_selected': selected_item is not None,
-            'item_details': {
-                'name': selected_item.model_name if selected_item else None,
-                'price': float(selected_item.price) if selected_item else None,
-                'emi': float(selected_item.emi) if selected_item else None,
-                'bank': selected_item.bank_name if selected_item else None
-            } if selected_item else None,
             'affordability_analysis': ai_response.get('affordability_analysis', {}),
-            'financial_plans': financial_plans
+            'affordability_score': ai_response.get('affordability_score', 5.0),
+            'risk_assessment': ai_response.get('risk_assessment', 'Analysis completed'),
+            'recommended_banks': ai_response.get('recommended_banks', []),
         }
+
+        # Always include consultation_id if it exists
+        if consultation_id:
+            response_data['consultation_id'] = consultation_id
+            print(f"✅ DEBUG: Including consultation_id {consultation_id} in AI response")
+        else:
+            print("🔄 DEBUG: No consultation_id to include in AI response")
+
+        if selected_item:
+            response_data['item_details'] = {
+                'name': selected_item.model_name,
+                'price': float(selected_item.price),
+                'emi': float(selected_item.emi),
+                'bank': selected_item.bank_name
+            }
 
         return JsonResponse(response_data)
 
@@ -179,50 +186,391 @@ def ai_chat_api(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-def generate_financial_plans(average_monthly_income, selected_item):
-    """Generate multiple financial plans for the selected item"""
-    if not selected_item:
-        return None
 
-    product_price = float(selected_item.price)
-    interest_rates = [12.5, 13.5, 14.5, 15.0]  # Different interest rates for different plans
-    tenures = [24, 36, 48, 60]  # Different tenure options
+@csrf_exempt
+@require_http_methods(["POST"])
+@login_required
+def create_consultation(request):
+    """API endpoint to create a new consultation record"""
+    try:
+        data = json.loads(request.body)
+        selected_item_id = data.get('selected_item_id')
 
-    plans = []
+        if not selected_item_id:
+            print(f"❌ Missing selected_item_id in request data: {data}")
+            return JsonResponse({'error': 'Selected item ID is required'}, status=400)
 
-    for i, (interest_rate, tenure) in enumerate(zip(interest_rates, tenures)):
-        # Calculate down payment (assuming 20% down payment)
-        down_payment_percent = 20
-        down_payment = product_price * (down_payment_percent / 100)
-        loan_amount = product_price - down_payment
+        print(f"🚀 Creating consultation for selected_item_id: {selected_item_id}")
 
-        # Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)
-        monthly_rate = interest_rate / (12 * 100)  # Monthly interest rate
-        emi = loan_amount * monthly_rate * (1 + monthly_rate)**tenure / ((1 + monthly_rate)**tenure - 1)
+        # Get or create the loan product
+        selected_item = None
+        fallback_data = None
 
-        # Calculate total repayment
-        total_repayment = emi * tenure
+        try:
+            # First try to get real product from database
+            selected_item = LoanProduct.objects.get(id=selected_item_id)
+            print(f"📊 Using real database product: {selected_item.model_name}")
+        except (LoanProduct.DoesNotExist, ValueError):
+            # For fallback products, create a temporary entry in the database
+            print(f"🏷️ Fallback product ID: {selected_item_id}")
 
-        # Calculate remaining salary after EMI
-        remaining_salary = average_monthly_income - emi
+            # Define fallback product data
+            fallback_products = {
+                '9991': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 5000000, 'emi': 45000, 'bank_name': 'State Bank of India (SBI)', 'interest_rate': 10.5, 'tenure_months': 240, 'item_id': '9991'},
+                '9992': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 3000000, 'emi': 28000, 'bank_name': 'HDFC Bank', 'interest_rate': 11.3, 'tenure_months': 240, 'item_id': '9992'},
+                '9993': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 200000, 'emi': 8500, 'bank_name': 'HDFC Bank', 'interest_rate': 12.5, 'tenure_months': 60, 'item_id': '9993'},
+                '9994': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 150000, 'emi': 6250, 'bank_name': 'ICICI Bank', 'interest_rate': 13.2, 'tenure_months': 48, 'item_id': '9994'},
+                '9995': {'category': 'gold_loan', 'model_name': 'Gold Loan', 'price': 100000, 'emi': 2250, 'bank_name': 'HDFC Bank', 'interest_rate': 9.5, 'tenure_months': 60, 'item_id': '9995'},
+                '9996': {'category': 'two_wheeler', 'model_name': 'Two Wheeler Loan', 'price': 100000, 'emi': 3500, 'bank_name': 'HDFC Bank', 'interest_rate': 11.8, 'tenure_months': 60, 'item_id': '9996'},
+                '9997': {'category': 'four_wheeler', 'model_name': 'Car Loan', 'price': 800000, 'emi': 22000, 'bank_name': 'ICICI Bank', 'interest_rate': 13.5, 'tenure_months': 84, 'item_id': '9997'},
+                '9998': {'category': 'electronics', 'model_name': 'Electronic Device Loan', 'price': 80000, 'emi': 2800, 'bank_name': 'Bajaj Finance (NBFC)', 'interest_rate': 14.5, 'tenure_months': 48, 'item_id': '9998'}
+            }
 
-        plans.append({
-            "plan_id": f"plan_{i+1}",
-            "name": f"Plan {i+1}: {'Standard' if i == 0 else 'Medium' if i == 1 else 'Extended' if i==2 else 'Long Term'} Term",
-            "tenure_months": tenure,
-            "interest_rate": interest_rate,
-            "product_cost": product_price,
-            "down_payment": down_payment,
-            "down_payment_percent": down_payment_percent,
-            "loan_amount": loan_amount,
-            "emi": emi,
-            "total_repayment": total_repayment,
-            "remaining_salary": remaining_salary,
-            "total_interest": total_repayment - loan_amount,
-            "affordability_score": 9.0 if remaining_salary > average_monthly_income * 0.7 else 7.0 if remaining_salary > average_monthly_income * 0.6 else 5.0
+            fb_data = fallback_products.get(str(selected_item_id))
+            if fb_data:
+                print(f"🔄 Creating fallback product in database for ID: {selected_item_id}")
+                # Create a temporary LoanProduct entry for this fallback
+                selected_item = LoanProduct.objects.create(**fb_data)
+                fallback_data = fb_data
+                print(f"✅ Created fallback product: {selected_item.model_name} (ID: {selected_item.id})")
+            else:
+                return JsonResponse({'error': f'Invalid product ID: {selected_item_id}'}, status=400)
+
+        # Get user's income data for last 6 months
+        six_months_ago = datetime.now() - timedelta(days=180)
+
+        income_transactions = Transaction.objects.filter(
+            user=request.user,
+            transaction_type='income',
+            date__gte=six_months_ago
+        )
+
+        # Calculate average monthly income - safer calculation
+        monthly_income = {}
+        for transaction in income_transactions:
+            month_key = f"{transaction.date.year}-{transaction.date.month}"
+            if month_key not in monthly_income:
+                monthly_income[month_key] = 0
+            monthly_income[month_key] += float(transaction.amount)
+
+        # Calculate average monthly income safely
+        average_monthly_income = 0.0
+        if monthly_income:
+            total_income = sum(monthly_income.values())
+            average_monthly_income = total_income / len(monthly_income)
+
+        print(f"💰 Calculated average income: {average_monthly_income}")
+
+        # Create consultation data
+        consultation_data = {
+            'user': request.user,
+            'selected_item': selected_item,
+            'user_income': average_monthly_income,
+            'ai_recommendation': f'Consultation started for product ID {selected_item_id} - Ready for plan generation',
+            'recommended_banks': [],
+            'risk_assessment': 'Analysis in progress',
+            'affordability_score': 5.0,
+        }
+
+        # Store fallback data if this is a fallback product
+        if fallback_data:
+            consultation_data['fallback_item_data'] = fallback_data
+
+        try:
+            print(f"🔍 Creating consultation with selected_item ID: {selected_item.id}")
+            # Create consultation
+            consultation = AIConsultation.objects.create(**consultation_data)
+            print(f"✅ Consultation CREATED with ID: {consultation.id}")
+
+            # Verify the consultation was created successfully
+            created_consultation = AIConsultation.objects.get(id=consultation.id, user=request.user)
+            print(f"✅ Consultation verified: {created_consultation.id}")
+
+        except Exception as db_error:
+            print(f"❌ Database error creating consultation: {db_error}")
+            import traceback
+            traceback.print_exc()
+            return JsonResponse({'error': f'Database error: {str(db_error)}'}, status=500)
+
+        return JsonResponse({
+            'success': True,
+            'consultation_id': consultation.id,
+            'message': f'Consultation created successfully for product ID {selected_item_id}',
+            'user_income': float(average_monthly_income)
         })
 
-    return plans
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON decode error: {e}")
+        return JsonResponse({'error': 'Invalid JSON data'}, status=400)
+    except Exception as e:
+        print(f"❌ Unexpected error in create_consultation: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@login_required
+def generate_financial_plans_api(request):
+    """API endpoint to generate financial plans for an existing consultation"""
+    try:
+        data = json.loads(request.body)
+        consultation_id = data.get('consultation_id')
+
+        print(f"🔍 DEBUG: generate_financial_plans_api called with data: {data}")
+
+        if not consultation_id:
+            print("❌ DEBUG: No consultation_id provided")
+            return JsonResponse({'error': 'Consultation ID is required'}, status=400)
+
+        # Get the consultation
+        try:
+            consultation = AIConsultation.objects.get(id=consultation_id, user=request.user)
+            print(f"📊 DEBUG: Found consultation: {consultation.id}")
+            print(f"📊 DEBUG: Consultation selected_item: {consultation.selected_item}")
+            print(f"📊 DEBUG: Consultation ai_recommendation: {consultation.ai_recommendation}")
+            print(f"📊 DEBUG: Consultation fallback_item_data: {getattr(consultation, 'fallback_item_data', 'Not available')}")
+            print(f"📊 DEBUG: Consultation user_income: {consultation.user_income}")
+        except AIConsultation.DoesNotExist:
+            print(f"❌ DEBUG: Consultation not found: {consultation_id}")
+            return JsonResponse({'error': 'Consultation not found'}, status=404)
+
+        # Get selected item from consultation
+        selected_item = consultation.selected_item
+        print(f"🔍 DEBUG: selected_item initially: {selected_item}")
+
+        # If no selected item but we have fallback data, create a temporary object
+        if not selected_item:
+            print("🔄 DEBUG: No selected_item, checking for fallback data")
+
+            # First try fallback_item_data field if available
+            if hasattr(consultation, 'fallback_item_data') and consultation.fallback_item_data:
+                print(f"✅ DEBUG: Using fallback_item_data: {consultation.fallback_item_data}")
+                fb_data = consultation.fallback_item_data
+
+                # Validate required fields
+                required_fields = ['category', 'model_name', 'price', 'emi', 'bank_name', 'interest_rate', 'tenure_months']
+                missing_fields = [field for field in required_fields if field not in fb_data]
+                if missing_fields:
+                    print(f"❌ DEBUG: Missing fields in fallback data: {missing_fields}")
+                    return JsonResponse({'error': f'Missing required fields in fallback data: {missing_fields}'}, status=400)
+
+                category_display_map = {
+                    'home_loan': 'Home Loan',
+                    'personal_loan': 'Personal Loan',
+                    'gold_loan': 'Gold Loan',
+                    'two_wheeler': 'Two Wheeler',
+                    'four_wheeler': 'Four Wheeler',
+                    'electronics': 'Electronics'
+                }
+
+                try:
+                    selected_item = type('TempLoanProduct', (), {
+                        'id': fb_data.get('id', 0),
+                        'category': fb_data['category'],
+                        'model_name': fb_data['model_name'],
+                        'price': float(fb_data['price']),
+                        'emi': float(fb_data['emi']),
+                        'bank_name': fb_data['bank_name'],
+                        'interest_rate': float(fb_data['interest_rate']),
+                        'tenure_months': int(fb_data['tenure_months']),
+                        'item_id': fb_data.get('item_id', fb_data.get('id', 0)),
+                        'get_category_display': lambda: category_display_map.get(fb_data['category'], fb_data['category'])
+                    })()
+                    print(f"✅ DEBUG: Created temporary object from fallback_item_data: {selected_item.model_name}")
+                except (ValueError, TypeError) as e:
+                    print(f"❌ DEBUG: Error creating temporary object: {e}")
+                    return JsonResponse({'error': f'Invalid fallback data format: {str(e)}'}, status=400)
+
+            # Fallback: Try to extract fallback ID from recommendation (legacy)
+            elif consultation.ai_recommendation:
+                print(f"🔄 DEBUG: Checking ai_recommendation for fallback ID: {consultation.ai_recommendation}")
+                import re
+                match = re.search(r'ID (\d+)', consultation.ai_recommendation)
+                if match:
+                    fallback_id = match.group(1)
+                    print(f"🔍 DEBUG: Extracted fallback ID from recommendation: {fallback_id}")
+
+                    fallback_products = {
+                        '9991': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 5000000, 'emi': 45000, 'bank_name': 'State Bank of India (SBI)', 'interest_rate': 10.5, 'tenure_months': 240},
+                        '9992': {'category': 'home_loan', 'model_name': 'Home Loan', 'price': 3000000, 'emi': 28000, 'bank_name': 'HDFC Bank', 'interest_rate': 11.3, 'tenure_months': 240},
+                        '9993': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 200000, 'emi': 8500, 'bank_name': 'HDFC Bank', 'interest_rate': 12.5, 'tenure_months': 60},
+                        '9994': {'category': 'personal_loan', 'model_name': 'Personal Loan', 'price': 150000, 'emi': 6250, 'bank_name': 'ICICI Bank', 'interest_rate': 13.2, 'tenure_months': 48},
+                        '9995': {'category': 'gold_loan', 'model_name': 'Gold Loan', 'price': 100000, 'emi': 2250, 'bank_name': 'HDFC Bank', 'interest_rate': 9.5, 'tenure_months': 60},
+                        '9996': {'category': 'two_wheeler', 'model_name': 'Two Wheeler Loan', 'price': 100000, 'emi': 3500, 'bank_name': 'HDFC Bank', 'interest_rate': 11.8, 'tenure_months': 60},
+                        '9997': {'category': 'four_wheeler', 'model_name': 'Car Loan', 'price': 800000, 'emi': 22000, 'bank_name': 'ICICI Bank', 'interest_rate': 13.5, 'tenure_months': 84},
+                        '9998': {'category': 'electronics', 'model_name': 'Electronic Device Loan', 'price': 80000, 'emi': 2800, 'bank_name': 'Bajaj Finance (NBFC)', 'interest_rate': 14.5, 'tenure_months': 48}
+                    }
+
+                    if fallback_id in fallback_products:
+                        fb_data = fallback_products[fallback_id]
+                        print(f"✅ DEBUG: Using fallback product data for ID {fallback_id}: {fb_data}")
+                        category_display_map = {
+                            'home_loan': 'Home Loan',
+                            'personal_loan': 'Personal Loan',
+                            'gold_loan': 'Gold Loan',
+                            'two_wheeler': 'Two Wheeler',
+                            'four_wheeler': 'Four Wheeler',
+                            'electronics': 'Electronics'
+                        }
+
+                        selected_item = type('TempLoanProduct', (), {
+                            'id': int(fallback_id),
+                            'category': fb_data['category'],
+                            'model_name': fb_data['model_name'],
+                            'price': fb_data['price'],
+                            'emi': fb_data['emi'],
+                            'bank_name': fb_data['bank_name'],
+                            'interest_rate': fb_data['interest_rate'],
+                            'tenure_months': fb_data['tenure_months'],
+                            'item_id': int(fallback_id),
+                            'get_category_display': lambda fb_data=fb_data: category_display_map.get(fb_data['category'], fb_data['category'])
+                        })()
+                    else:
+                        print(f"❌ DEBUG: Fallback ID {fallback_id} not found in fallback_products")
+                else:
+                    print("❌ DEBUG: No fallback ID found in ai_recommendation")
+            else:
+                print("❌ DEBUG: No fallback data available")
+
+        if not selected_item:
+            print("❌ DEBUG: No valid item found after all attempts")
+            return JsonResponse({'error': 'No valid item found for this consultation. Please ensure the consultation has item data.'}, status=400)
+
+        print(f"✅ DEBUG: Final selected_item: {selected_item.model_name}, Price: {selected_item.price}, Income: {consultation.user_income}")
+
+        # Validate that user_income exists
+        if not consultation.user_income or consultation.user_income <= 0:
+            print(f"❌ DEBUG: Invalid user income: {consultation.user_income}")
+            return JsonResponse({'error': 'Invalid user income data'}, status=400)
+
+        # Generate financial plans
+        try:
+            print("🚀 DEBUG: Calling generate_financial_plans function")
+            financial_plans = generate_financial_plans(consultation.user_income, selected_item)
+            print(f"✅ DEBUG: Generated {len(financial_plans)} plans")
+
+            if not financial_plans or len(financial_plans) == 0:
+                print("❌ DEBUG: No financial plans generated")
+                return JsonResponse({'error': 'Failed to generate financial plans - no plans created'}, status=500)
+
+            return JsonResponse({
+                'success': True,
+                'financial_plans': financial_plans,
+                'consultation_id': consultation.id,
+                'user_income': float(consultation.user_income)
+            })
+
+        except Exception as plan_error:
+            print(f"❌ DEBUG: Error in generate_financial_plans function: {plan_error}")
+            import traceback
+            traceback.print_exc()
+            return JsonResponse({'error': f'Plan generation failed: {str(plan_error)}'}, status=500)
+
+    except json.JSONDecodeError as e:
+        print(f"❌ DEBUG: JSON decode error: {e}")
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        print(f"❌ DEBUG: Unexpected error in generate_financial_plans_api: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
+
+def generate_financial_plans(average_monthly_income, selected_item):
+    """Generate multiple financial plans for the selected item"""
+    try:
+        print("🔧 DEBUG: Starting generate_financial_plans")
+        print(f"🔧 DEBUG: average_monthly_income type: {type(average_monthly_income)}, value: {average_monthly_income}")
+
+        if not selected_item:
+            print("❌ DEBUG: No selected_item provided")
+            return None
+
+        # Ensure consistent float conversion for all numeric values
+        try:
+            product_price = float(selected_item.price)
+            print(f"🔧 DEBUG: product_price converted to float: {product_price} (from {type(selected_item.price)})")
+        except Exception as e:
+            print(f"❌ DEBUG: Error converting product_price: {e}")
+            return None
+
+        # Interest rates and tenures as lists
+        interest_rates = [12.5, 13.5, 14.5, 15.0]  # Different interest rates for different plans
+        tenures = [24, 36, 48, 60]  # Different tenure options
+
+        plans = []
+
+        for i, (interest_rate, tenure) in enumerate(zip(interest_rates, tenures)):
+            print(f"🔧 DEBUG: Processing plan {i+1} - interest_rate: {interest_rate}, tenure: {tenure}")
+
+            try:
+                # Calculate down payment (assuming 20% down payment)
+                down_payment_percent = 20.0
+                down_payment = product_price * (down_payment_percent / 100.0)
+                loan_amount = product_price - down_payment
+
+                print(f"🔧 DEBUG: Plan {i+1} - product_price: {product_price}, down_payment: {down_payment}, loan_amount: {loan_amount}")
+
+                # Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)
+                monthly_rate = interest_rate / (12.0 * 100.0)  # Monthly interest rate
+                emi_numerator = loan_amount * monthly_rate * (1.0 + monthly_rate)**tenure
+                emi_denominator = (1.0 + monthly_rate)**tenure - 1.0
+
+                if emi_denominator == 0:
+                    print(f"❌ DEBUG: Division by zero in EMI calculation for plan {i+1}")
+                    continue
+
+                emi = emi_numerator / emi_denominator
+
+                # Calculate total repayment
+                total_repayment = emi * tenure
+
+                # Calculate remaining salary after EMI
+                remaining_salary = float(average_monthly_income) - emi
+
+                print(f"🔧 DEBUG: Plan {i+1} - emi: {emi}, total_repayment: {total_repayment}, remaining_salary: {remaining_salary}")
+
+                # Calculate total interest
+                total_interest = total_repayment - loan_amount
+
+                # Calculate affordability score (ensure float comparison)
+                avg_income_float = float(average_monthly_income)
+                affordability_score = 9.0 if remaining_salary > avg_income_float * 0.7 else 7.0 if remaining_salary > avg_income_float * 0.6 else 5.0
+
+                plan_data = {
+                    "plan_id": f"plan_{i+1}",
+                    "name": f"Plan {i+1}: {'Standard' if i == 0 else 'Medium' if i == 1 else 'Extended' if i==2 else 'Long Term'} Term",
+                    "tenure_months": int(tenure),
+                    "interest_rate": float(interest_rate),
+                    "product_cost": float(product_price),
+                    "down_payment": float(down_payment),
+                    "down_payment_percent": float(down_payment_percent),
+                    "loan_amount": float(loan_amount),
+                    "emi": float(emi),
+                    "total_repayment": float(total_repayment),
+                    "remaining_salary": float(remaining_salary),
+                    "total_interest": float(total_interest),
+                    "affordability_score": float(affordability_score)
+                }
+
+                plans.append(plan_data)
+                print(f"✅ DEBUG: Plan {i+1} created successfully")
+
+            except Exception as plan_error:
+                print(f"❌ DEBUG: Error creating plan {i+1}: {plan_error}")
+                import traceback
+                traceback.print_exc()
+                continue
+
+        print(f"✅ DEBUG: Generated {len(plans)} plans successfully")
+        return plans
+
+    except Exception as e:
+        print(f"❌ DEBUG: Unexpected error in generate_financial_plans: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def generate_ai_response(user_message, average_monthly_income, selected_item, monthly_income, financial_plans=None, selected_item_id=None):
@@ -1264,14 +1612,24 @@ def select_financial_plan(request):
         consultation_id = data.get('consultation_id')
         selected_plan = data.get('selected_plan')
 
+        print(f"📡 select_financial_plan called with consultation_id: {consultation_id}")
+        print(f"📦 selected_plan data: {selected_plan}")
+
         if not consultation_id or not selected_plan:
+            print("❌ Missing required data")
             return JsonResponse({'error': 'Consultation ID and selected plan are required'}, status=400)
 
-        consultation = get_object_or_404(AIConsultation, id=consultation_id, user=request.user)
+        try:
+            consultation = AIConsultation.objects.get(id=consultation_id, user=request.user)
+            print(f"📊 Found consultation: {consultation.id}")
+        except AIConsultation.DoesNotExist:
+            print(f"❌ Consultation not found: {consultation_id} for user {request.user.username}")
+            return JsonResponse({'error': 'Consultation not found or access denied'}, status=404)
 
         # Update consultation with selected plan
         consultation.selected_plan = selected_plan
         consultation.save()
+        print(f"✅ Consultation updated with selected plan")
 
         return JsonResponse({
             'success': True,
@@ -1279,10 +1637,14 @@ def select_financial_plan(request):
             'consultation_id': consultation.id
         })
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON decode error: {e}")
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        print(f"❌ Unexpected error in select_financial_plan: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
 
 
 @csrf_exempt
@@ -1376,6 +1738,45 @@ def get_consultation_details(request, consultation_id):
         except AIConsultation.DoesNotExist:
             return JsonResponse({'error': 'Consultation not found or access denied'}, status=404)
 
+        # Build item data - handle both real items and fallback items
+        if consultation.selected_item:
+            # Real database item
+            item_data = {
+                'name': consultation.selected_item.model_name,
+                'price': float(consultation.selected_item.price) if consultation.selected_item.price else 0.0,
+                'emi': float(consultation.selected_item.emi) if consultation.selected_item.emi else 0.0,
+                'bank': consultation.selected_item.bank_name,
+                'category': consultation.selected_item.get_category_display(),
+            }
+        elif hasattr(consultation, 'fallback_item_data') and consultation.fallback_item_data:
+            # Fallback item from JSON field
+            fallback = consultation.fallback_item_data
+            category_display_map = {
+                'home_loan': 'Home Loan',
+                'personal_loan': 'Personal Loan',
+                'gold_loan': 'Gold Loan',
+                'two_wheeler': 'Two Wheeler',
+                'four_wheeler': 'Four Wheeler',
+                'electronics': 'Electronics'
+            }
+
+            item_data = {
+                'name': fallback.get('model_name', 'Fallback Item'),
+                'price': float(fallback.get('price', 0)),
+                'emi': float(fallback.get('emi', 0)),
+                'bank': fallback.get('bank_name', 'Unknown Bank'),
+                'category': category_display_map.get(fallback.get('category'), fallback.get('category', 'Unknown')),
+            }
+        else:
+            # No item data available
+            item_data = {
+                'name': None,
+                'price': 0.0,
+                'emi': 0.0,
+                'bank': None,
+                'category': None,
+            }
+
         # Safely build response data, checking for None values
         response_data = {
             'consultation': {
@@ -1390,13 +1791,7 @@ def get_consultation_details(request, consultation_id):
                 'months_completed': consultation.months_completed,
                 'remaining_months': consultation.remaining_months,
             },
-            'item': {
-                'name': consultation.selected_item.model_name if consultation.selected_item else None,
-                'price': float(consultation.selected_item.price) if consultation.selected_item and consultation.selected_item.price else 0.0,
-                'emi': float(consultation.selected_item.emi) if consultation.selected_item and consultation.selected_item.emi else 0.0,
-                'bank': consultation.selected_item.bank_name if consultation.selected_item else None,
-                'category': consultation.selected_item.get_category_display() if consultation.selected_item else None,
-            }
+            'item': item_data
         }
 
         # Only include selected_plan if it exists and is not None

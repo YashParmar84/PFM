@@ -21,7 +21,9 @@ urlpatterns = [
     path('api/filtered-chart-data/', views.get_filtered_chart_data, name='filtered_chart_data'),
     path('api/comprehensive-chart-data/', views.get_comprehensive_chart_data, name='comprehensive_chart_data'),
 
-    # Financial plan management endpoints
+    # Financial plan management endpoints - proper sequence
+    path('api/create-consultation/', views.create_consultation, name='create_consultation'),
+    path('api/generate-financial-plans/', views.generate_financial_plans_api, name='generate_financial_plans_api'),
     path('api/select-financial-plan/', views.select_financial_plan, name='select_financial_plan'),
     path('api/activate-financial-plan/', views.activate_financial_plan, name='activate_financial_plan'),
     path('api/delete-financial-plan/', views.delete_financial_plan, name='delete_financial_plan'),

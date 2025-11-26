@@ -6,7 +6,7 @@ from django.urls import path
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 from django.urls import reverse
-from .models import UserProfile, Transaction, Budget
+from .models import UserProfile, Transaction, Budget, LoanProduct, AIConsultation
 
 
 class UserProfileInline(admin.StackedInline):
@@ -193,10 +193,83 @@ class PersonalFinanceAdminSite(admin.AdminSite):
 # Create custom admin site instance
 admin_site = PersonalFinanceAdminSite(name='personal_finance_admin')
 
+@admin.register(LoanProduct)
+class LoanProductAdmin(admin.ModelAdmin):
+    list_display = [
+        'model_name', 'price', 'emi', 'bank_name',
+        'category', 'interest_rate', 'tenure_months'
+    ]
+
+    list_filter = ['category', 'bank_name', 'interest_rate']
+    search_fields = ['model_name', 'bank_name', 'category']
+    ordering = ['model_name']
+
+    # Removed invalid fields that do not exist in the model
+    readonly_fields = []  
+
+    fieldsets = (
+        ('Product Details', {
+            'fields': (
+                'item_id', 'category', 'model_name', 'price', 'emi',
+                'bank_name', 'interest_rate', 'tenure_months'
+            )
+        }),
+    )
+
+    def has_add_permission(self, request):
+        """Allow only superusers to add loan products"""
+        return request.user.is_superuser
+
+@admin.register(AIConsultation)
+class AIConsultationAdmin(admin.ModelAdmin):
+    list_display = ['user', 'selected_item', 'user_income', 'affordability_score', 'created_at', 'get_plan_status']
+    list_filter = ['created_at', 'affordability_score', 'selected_plan']
+    search_fields = ['user__username', 'selected_item__model_name']
+    date_hierarchy = 'created_at'
+    ordering = ['-created_at']
+    readonly_fields = ['created_at', 'updated_at', 'months_completed', 'remaining_months']
+
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('user', 'selected_item', 'user_income', 'ai_recommendation', 'affordability_score')
+        }),
+        ('Risk Assessment', {
+            'fields': ('risk_assessment', 'recommended_banks')
+        }),
+        ('Plan Management', {
+            'fields': ('selected_plan', 'activated_plan', 'plan_start_date', 'plan_end_date', 'monthly_tracking_active'),
+            'classes': ('collapse',)
+        }),
+        ('Calculated Fields', {
+            'fields': ('months_completed', 'remaining_months'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_plan_status(self, obj):
+        if obj.activated_plan:
+            return "Activated"
+        elif obj.selected_plan:
+            return "Selected"
+        else:
+            return "None"
+    get_plan_status.short_description = "Plan Status"
+    get_plan_status.admin_order_field = 'activated_plan'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'selected_item')
+
+
 # Register models with custom admin site
 admin_site.register(User, CustomUserAdmin)
 admin_site.register(Transaction, TransactionAdmin)
 admin_site.register(Budget, BudgetAdmin)
+admin_site.register(LoanProduct, LoanProductAdmin)
+admin_site.register(AIConsultation, AIConsultationAdmin)
 
 
 # User Self-Administration Site
