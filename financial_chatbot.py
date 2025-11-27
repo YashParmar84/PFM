@@ -1995,52 +1995,84 @@ class SpecializedFinancialChatbot:
         }
 
     def _handle_affordability_alternatives(self, user_context: Dict, greeting: str) -> Dict:
-        """Handle when user says no to unaffordable product - suggest alternatives"""
-        selected_product = user_context.get('selected_product', {})
-        category = user_context.get('category', '')
+        """Handle when user says no to unaffordable product - suggest affordable alternatives"""
+        if user_context is None:
+            user_context = {}
+
         average_income = user_context.get('average_income', 0)
+        category = user_context.get('category', '')
 
-        response = f"{greeting}\n\nI understand you'd prefer to see more affordable options. Here are some alternatives:\n\n"
+        # Acknowledge the answer and start with required message
+        response = f"Thank you for your answer. Now I will show products that are affordable for you.\n\n"
 
-        # Suggest lower tier products in same category
+        # Calculate affordable price range based on recommended EMI threshold (30% of income)
+        if average_income > 0:
+            affordable_emi_max = average_income * 0.30  # 30% threshold for EMI
+            # Calculate maximum affordable price using standard loan assumption (24 months, 13% rate, 20% down)
+            # EMI = P * r * (1+r)^n / ((1+r)^n - 1)
+            r = 0.13 / 12  # Monthly rate (13% APR)
+            n = 24  # Standard 24-month tenure
+            # Rearranged formula for principal: P = EMI * ((1+r)^n - 1) / (r * (1+r)^n)
+            denominator = r * (1 + r) ** n
+            numerator = (1 + r) ** n - 1
+            max_principal = affordable_emi_max * (numerator / denominator)
+
+            # Account for 20% downpayment
+            max_affordable_price = max_principal / 0.8
+
+            response += f"**Affordable Price Range**\n"
+            response += f"• Based on ₹{average_income:,.0f}/month income\n"
+            response += f"• Maximum EMI: ₹{affordable_emi_max:,.0f}/month (30% of income)\n"
+            response += f"• Maximum price range: ₹{max_affordable_price:,.0f}\n\n"
+        else:
+            max_affordable_price = 100000  # Default if no income data
+
+        # Get suggestions and find affordable ones
         suggestions = self._get_product_suggestions(category)
-        if suggestions:
-            response += f"**More Affordable Options in {category.replace('_', ' ').title()} Category:**\n\n"
-            affordable_count = 0
+        affordable_products = []
+
+        if suggestions and average_income:
             for product in suggestions:
-                if product['price'] < selected_product.get('price', 0) and affordable_count < 3:
-                    # Quick affordability check for suggested product
-                    if average_income:
-                        loan_amount = product['price'] * 0.8
-                        mock_rate = self.fallback_rates.get(category, 13.0)
-                        affordable_emi = (loan_amount * mock_rate/100/12 * (1 + mock_rate/100/12)**24) / ((1 + mock_rate/100/12)**24 - 1)
-                        emi_ratio = (affordable_emi / average_income) * 100
+                if product['price'] <= max_affordable_price and product['price'] > 0:
+                    # Quick EMI calculation to verify affordability
+                    loan_amount = product['price'] * 0.8
+                    emi = self.calculate_emi(loan_amount, self.fallback_rates.get(category, 13.0), 24)
+                    ratio = (emi / average_income) * 100
 
-                        if emi_ratio <= 30:  # Only suggest affordable ones
-                            response += f"• **{product['name']}** - ₹{product['price']:,.0f}\n"
-                            response += f"  - {product['specs']}\n"
-                            response += f"  - Estimated EMI: ₹{affordable_emi:.0f}/month ({emi_ratio:.1f}% of income)\n\n"
-                            affordable_count += 1
+                    if ratio <= 30:  # Only include truly affordable ones
+                        product_copy = product.copy()
+                        product_copy['estimated_emi'] = emi
+                        product_copy['emi_ratio'] = ratio
+                        affordable_products.append(product_copy)
 
-        if affordable_count == 0:
-            response += f"No more affordable options found in this category. Consider:\n\n"
+        # Limit to top 3-4 suggestions
+        affordable_products = affordable_products[:4]
 
-        response += f"**Additional Options:**\n"
-        response += f"• Different {category.replace('_', ' ')} brands or variants\n"
-        response += f"• Consider used/refurbished options\n"
-        response += f"• Wait for sales or discounts\n"
-        response += f"• Explore other categories with better pricing\n"
-        response += f"• Create a saving plan for the desired product\n\n"
+        if affordable_products:
+            response += "**Suggested Affordable Products**\n\n"
+            for i, product in enumerate(affordable_products, 1):
+                response += f"**{i}. {product['name']}**\n"
+                response += f"• Price: ₹{product['price']:,.0f}\n"
+                response += f"• EMI: ₹{product['estimated_emi']:,.0f}/month\n"
+                response += f"• Specs: {product['specs']}\n\n"
 
-        response += f"Which direction would you like to explore?"
+            response += "Select a product by number (1-4) or name to proceed with EMI planning."
 
-        # Clear the affordability response waiting state
-        user_context['selected_product'] = None  # Clear current selection
-        user_context['product_selected'] = False
+            # Set context for user selection
+            user_context['available_suggestions'] = affordable_products
+            user_context['awaiting_response'] = 'product_selection'
+        else:
+            response += "No products found in your affordable price range. Consider:\n\n"
+            response += "• Checking other product categories\n"
+            response += "• Creating a saving plan for more expensive options\n"
+            response += "• Exploring used/refurbished products"
 
         return {
             'message': response,
-            'show_greeting': True
+            'affordable_products': affordable_products,
+            'calculated_price_range': max_affordable_price,
+            'max_affordable_emi': affordable_emi_max if 'affordable_emi_max' in locals() else None,
+            'awaiting_response': 'product_selection' if affordable_products else 'explore_alternatives'
         }
 
 # Global instance
