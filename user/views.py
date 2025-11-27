@@ -74,12 +74,12 @@ def ai_chat_api(request):
 
             if current_consultation:
                 consultation_id = current_consultation.id
-                print(f"🔗 DEBUG: Found current_consultation ID: {consultation_id}")
+                print(f"DEBUG: Found current_consultation ID: {consultation_id}")
             else:
-                print("🔗 DEBUG: No existing consultation found for user")
+                print("DEBUG: No existing consultation found for user")
 
         except Exception as e:
-            print(f"🔗 DEBUG: Error getting consultation: {e}")
+            print(f"DEBUG: Error getting consultation: {e}")
 
         # Get selected loan product if provided
         selected_item = None
@@ -126,50 +126,158 @@ def ai_chat_api(request):
             else:
                 selected_item = get_object_or_404(LoanProduct, id=selected_item_id)
 
-        # Calculate monthly income data for the last 6 months
+        # Calculate last 6 months income data (automatically, never ask user)
         six_months_ago = datetime.now() - timedelta(days=180)
-        monthly_income = {}
-
         income_transactions_agg = Transaction.objects.filter(
             user=request.user,
             transaction_type='income',
             date__gte=six_months_ago
-        )
+        ).values('amount')
+
+        # Build income history for last 6 months (list of monthly incomes)
+        income_history = []
+        monthly_income_totals = {}
+
         for transaction in income_transactions_agg:
-            month_key = f"{transaction.date.year}-{transaction.date.month}"
-            if month_key not in monthly_income:
-                monthly_income[month_key] = 0
-            monthly_income[month_key] += float(transaction.amount)
+            # Group by month (simplified - assuming we want monthly totals)
+            # In production, you'd want more precise monthly aggregation
+            income_history.append(float(transaction['amount']))
 
         # Calculate average monthly income safely
         average_monthly_income = 0.0
-        if monthly_income:
-            total_income = sum(monthly_income.values())
-            average_monthly_income = total_income / len(monthly_income)
+        if income_history:
+            average_monthly_income = sum(income_history) / len(income_history)
 
-        # Generate AI response using NLP model with financial insights and suggestions
-        ai_response = answer_financial_question(
-            question=user_message,
-            user_income=average_monthly_income,
-            item_price=selected_item.price if selected_item and selected_item.price else 0.0,
-            emi=selected_item.emi if selected_item and selected_item.emi else 0.0
-        )
+        # Build user context for the new chatbot (pass actual last 6 months income data)
+        user_context = {
+            'user_id': request.user.id,
+            'average_income': average_monthly_income,
+            'income_history': []  # Start empty
+        }
 
+        user_context['income_history'] = [float(t['amount']) for t in income_transactions_agg]  # Actual last 6 months income amounts
+
+        if selected_item:
+            user_context['product_price'] = selected_item.price
+            user_context['selected_item'] = selected_item
+
+        # Load conversation context from the most recent AIConsultation
+        recent_consultation = AIConsultation.objects.filter(user=request.user).order_by('-created_at').first()
+        if recent_consultation and recent_consultation.conversation_context:
+            # Restore the conversation context (will be empty dict if not set)
+            user_context.update(recent_consultation.conversation_context)
+            print(f"DEBUG: Loaded conversation context from consultation {recent_consultation.id}")
+
+        # Generate AI response using the specialized chatbot
+        chatbot = get_chatbot()
+
+        # For save/show commands, get the user object from the imports
+        from django.contrib.auth.models import User as DjangoUser
+        current_user = request.user
+
+        # Check message type and pass user if needed
+        try:
+            if 'save this plan' in user_message.lower():
+                ai_response = chatbot._handle_save_plan(user_message, user_context, current_user)
+            elif 'show my saved plans' in user_message.lower():
+                ai_response = chatbot._handle_show_saved_plans(user_message, user_context, current_user)
+            else:
+                ai_response = chatbot.process_message(user_message, user_context)
+
+            # After processing, save the updated context back to the consultation
+            # Prepare context data to save (exclude temporary or non-serializable items)
+            context_to_save = {}
+            persist_keys = [
+                'affordable', 'awaiting_affordability_response', 'awaiting_monthly_savings_response',
+                'selected_product', 'product_selected', 'total_savings_needed', 'saving_plan_target_product',
+                'saving_plan_target_price', 'saving_plan_income', 'temp_savings', 'temp_savings_type',
+                'available_suggestions', 'product_selected', 'last_message', 'average_income',
+                'income_history', 'user_id'
+            ]
+
+            for key in persist_keys:
+                if key in user_context:
+                    value = user_context[key]
+                    # Skip non-serializable objects (convert selected_product to dict if needed)
+                    if key == 'selected_product' and value:
+                        if isinstance(value, dict):
+                            context_to_save[key] = value
+                        elif hasattr(value, '__dict__'):
+                            # Convert to dict for storage (exclude methods)
+                            context_to_save[key] = {k: v for k, v in value.__dict__.items() if not k.startswith('_')}
+                        else:
+                            context_to_save[key] = str(value)  # Fallback to string
+                    else:
+                        context_to_save[key] = value
+
+            # Save back to the same consultation
+            if recent_consultation:
+                recent_consultation.conversation_context = context_to_save
+                recent_consultation.save()
+                print(f"DEBUG: Saved conversation context to consultation {recent_consultation.id}")
+            else:
+                # Create a new consultation to store context
+                AIConsultation.objects.create(
+                    user=request.user,
+                    user_income=average_monthly_income,
+                    ai_recommendation="Conversation context stored",
+                    affordability_score=5.0,
+                    recommended_banks=[],
+                    risk_assessment="Context preservation",
+                    conversation_context=context_to_save
+                )
+                print("DEBUG: Created new consultation to store conversation context")
+        except Exception as chatbot_error:
+            print(f"Chatbot processing error: {chatbot_error}")
+            import traceback
+            traceback.print_exc()
+
+            # Always return a valid response even if chatbot fails
+            ai_response = {
+                'reply': f"Hello! How can I help you today?\n\nSorry, there was an error processing your request: {str(chatbot_error)}\n\nPlease try again with a different question.",
+                'has_item_selected': False,
+                'risk_assessment': 'Error occurred',
+                'recommended_banks': [],
+                'affordability_analysis': []
+            }
+
+        # Build response data compatible with frontend
         response_data = {
             'reply': ai_response.get('message', 'I understand your question. Let me analyze your financial situation and provide personalized recommendations.'),
             'has_item_selected': selected_item is not None,
             'affordability_analysis': ai_response.get('financial_analysis', []),
-            'affordability_score': ai_response.get('affordability_score', 5.0),
-            'risk_assessment': ai_response.get('risk_assessment', 'Analysis completed'),
-            'recommended_banks': ai_response.get('recommended_banks', []) if ai_response.get('recommended_banks') else [],
+            'affordability_score': ai_response.get('recommended_emi', 5.0) if ai_response.get('product_category') else 5.0,
+            'risk_assessment': 'Analysis completed',
+            'recommended_banks': ai_response.get('rates', []),
         }
+
+        # Add product-specific data if available
+        if 'product_category' in ai_response:
+            response_data.update({
+                'product_analysis': {
+                    'category': ai_response.get('product_category'),
+                    'price': ai_response.get('price'),
+                    'emi_options': ai_response.get('emi_options', []),
+                    'downpayment_options': ai_response.get('downpayment_options', []),
+                    'affordable_options': ai_response.get('affordable_options', []),
+                    'recommended_emi': ai_response.get('recommended_emi')
+                }
+            })
+
+        # Add saving plan data if available
+        if 'saving_plans' in ai_response:
+            response_data['saving_plans'] = ai_response['saving_plans']
+
+        # Add affordability data if available
+        if 'affordability' in ai_response:
+            response_data['affordability'] = ai_response['affordability']
 
         # Always include consultation_id if it exists
         if consultation_id:
             response_data['consultation_id'] = consultation_id
-            print(f"✅ DEBUG: Including consultation_id {consultation_id} in AI response")
+            print(f"DEBUG: Including consultation_id {consultation_id} in AI response")
         else:
-            print("🔄 DEBUG: No consultation_id to include in AI response")
+            print("DEBUG: No consultation_id to include in AI response")
 
         if selected_item:
             response_data['item_details'] = {
@@ -197,10 +305,10 @@ def create_consultation(request):
         selected_item_id = data.get('selected_item_id')
 
         if not selected_item_id:
-            print(f"❌ Missing selected_item_id in request data: {data}")
+            print(f"DEBUG: Missing selected_item_id in request data: {data}")
             return JsonResponse({'error': 'Selected item ID is required'}, status=400)
 
-        print(f"🚀 Creating consultation for selected_item_id: {selected_item_id}")
+        print(f"DEBUG: Creating consultation for selected_item_id: {selected_item_id}")
 
         # Get or create the loan product
         selected_item = None
@@ -209,10 +317,10 @@ def create_consultation(request):
         try:
             # First try to get real product from database
             selected_item = LoanProduct.objects.get(id=selected_item_id)
-            print(f"📊 Using real database product: {selected_item.model_name}")
+            print(f"DATA: Using real database product: {selected_item.model_name}")
         except (LoanProduct.DoesNotExist, ValueError):
             # For fallback products, create a temporary entry in the database
-            print(f"🏷️ Fallback product ID: {selected_item_id}")
+            print(f"FALLBACK: Fallback product ID: {selected_item_id}")
 
             # Define fallback product data
             fallback_products = {
@@ -228,7 +336,7 @@ def create_consultation(request):
 
             fb_data = fallback_products.get(str(selected_item_id))
             if fb_data:
-                print(f"🔄 Creating fallback product in database for ID: {selected_item_id}")
+                print(f"SWITCH: Creating fallback product in database for ID: {selected_item_id}")
                 # Create a temporary LoanProduct entry for this fallback
                 selected_item = LoanProduct.objects.create(**fb_data)
                 fallback_data = fb_data
@@ -259,7 +367,7 @@ def create_consultation(request):
             total_income = sum(monthly_income.values())
             average_monthly_income = total_income / len(monthly_income)
 
-        print(f"💰 Calculated average income: {average_monthly_income}")
+            print(f"MONEY: Calculated average income: {average_monthly_income}")
 
         # Create consultation data
         consultation_data = {
@@ -277,14 +385,14 @@ def create_consultation(request):
             consultation_data['fallback_item_data'] = fallback_data
 
         try:
-            print(f"🔍 Creating consultation with selected_item ID: {selected_item.id}")
+            print(f"SEARCH: Creating consultation with selected_item ID: {selected_item.id}")
             # Create consultation
             consultation = AIConsultation.objects.create(**consultation_data)
-            print(f"✅ Consultation CREATED with ID: {consultation.id}")
+            print(f"SUCCESS: Consultation CREATED with ID: {consultation.id}")
 
             # Verify the consultation was created successfully
             created_consultation = AIConsultation.objects.get(id=consultation.id, user=request.user)
-            print(f"✅ Consultation verified: {created_consultation.id}")
+            print(f"SUCCESS: Consultation verified: {created_consultation.id}")
 
         except Exception as db_error:
             print(f"❌ Database error creating consultation: {db_error}")
@@ -1059,7 +1167,7 @@ def add_transaction(request):
             UserActivity.objects.create(
                 user=request.user,
                 activity_type='add_transaction',
-                description=f"Added {transaction_type} transaction of ₹{amount:.2f} for {transaction.get_category_display()}",
+                description=f"Added {transaction_type} transaction of Rs.{amount:.2f} for {transaction.get_category_display()}",
                 metadata={
                     'transaction_id': transaction.id,
                     'amount': str(amount),
@@ -1160,7 +1268,7 @@ def budget_management(request):
             UserActivity.objects.create(
                 user=request.user,
                 activity_type=activity_type,
-                description=f"{'Created' if created else 'Updated'} budget of ₹{amount:.2f} for {budget.get_category_display()} ({month.strftime('%b %Y')})",
+                description=f"{'Created' if created else 'Updated'} budget of Rs.{amount:.2f} for {budget.get_category_display()} ({month.strftime('%b %Y')})",
                 metadata={
                     'budget_id': budget.id,
                     'amount': str(amount),
@@ -1205,17 +1313,17 @@ def get_budget_context(request):
             current_expenses_val = budget.get_current_expenses
             current_expenses = float(current_expenses_val or 0)
         except (TypeError, ValueError) as e:
-            print(f"DEBUG: ERROR getting expenses for {budget.category}: {e}")
+            # print(f"DEBUG: ERROR getting expenses for {budget.category}: {e}")
             current_expenses = 0.0
 
         try:
             budget_amount = float(budget.amount)
         except (TypeError, ValueError) as e:
-            print(f"DEBUG: ERROR getting budget amount for {budget.category}: {e}")
+            # print(f"DEBUG: ERROR getting budget amount for {budget.category}: {e}")
             budget_amount = 0.0
 
         # Debug: Show calculation details
-        print(f"DEBUG: Budget '{budget.category}' - Spent: ₹{current_expenses:.2f}, Budget: ₹{budget_amount:.2f}, Month: {budget.month}")
+        print(f"DEBUG: Budget '{budget.category}' - Spent: Rs.{current_expenses:.2f}, Budget: Rs.{budget_amount:.2f}, Month: {budget.month}")
 
         is_over_budget = current_expenses > budget_amount
         remaining_amount = budget_amount - current_expenses

@@ -35,7 +35,7 @@ class Transaction(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.transaction_type} - ₹{self.amount} ({self.get_category_display()})"
+        return f"{self.transaction_type} - Rs.{self.amount} ({self.get_category_display()})"
 
     class Meta:
         ordering = ['-date']
@@ -51,7 +51,7 @@ class Budget(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.get_category_display()} Budget - ₹{self.amount}"
+        return f"{self.get_category_display()} Budget - Rs.{self.amount}"
 
     @property
     def get_current_expenses(self):
@@ -97,7 +97,7 @@ class LoanProduct(models.Model):
     tenure_months = models.IntegerField()
 
     def __str__(self):
-        return f"{self.model_name} - ₹{self.price} ({self.get_category_display()})"
+        return f"{self.model_name} - Rs.{self.price} ({self.get_category_display()})"
 
 
 class UserProfile(models.Model):
@@ -137,6 +137,43 @@ class UserActivity(models.Model):
         ordering = ['-timestamp']
 
 
+class SavedPlan(models.Model):
+    """Model to store saved financial plans"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    plan_id = models.CharField(max_length=50)  # e.g., "plan_1"
+    product = models.CharField(max_length=200)  # Product name
+    price = models.DecimalField(max_digits=12, decimal_places=2)  # Product price
+    downpayment = models.DecimalField(max_digits=5, decimal_places=2, null=True)  # Downpayment percentage (0, 10, 20)
+    loan_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True)  # Loan amount after downpayment
+    interest_rate = models.DecimalField(max_digits=5, decimal_places=2)  # Interest rate
+    tenure = models.IntegerField()  # Tenure in months
+    emi = models.DecimalField(max_digits=10, decimal_places=2)  # Monthly EMI
+    total_paid = models.DecimalField(max_digits=12, decimal_places=2)  # Total amount payable
+    notes = models.TextField(blank=True, null=True)  # Plan notes
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Saved Plan {self.plan_id} for {self.user.username} - {self.product}"
+
+    class Meta:
+        unique_together = ['user', 'plan_id']
+        ordering = ['-created_at']
+
+    @property
+    def downpayment_amount(self):
+        """Calculate downpayment amount"""
+        if self.downpayment is not None and self.price is not None:
+            return (self.downpayment / 100) * self.price
+        return 0
+
+    @property
+    def interest_paid(self):
+        """Calculate total interest paid"""
+        if self.total_paid is not None and self.price is not None:
+            return self.total_paid - self.price
+        return 0
+
+
 class AIConsultation(models.Model):
     """Model to store AI consultation history"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -154,6 +191,8 @@ class AIConsultation(models.Model):
     plan_start_date = models.DateField(blank=True, null=True)  # When plan was activated
     plan_end_date = models.DateField(blank=True, null=True)  # When plan will end
     monthly_tracking_active = models.BooleanField(default=False)  # If monthly tracking is enabled
+    # Conversation state persistence
+    conversation_context = models.JSONField(default=dict, blank=True, null=True)  # Store conversation state
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

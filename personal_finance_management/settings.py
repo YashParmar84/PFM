@@ -134,4 +134,4 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # External services
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY', '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')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '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')
