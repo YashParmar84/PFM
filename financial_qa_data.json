@@ -1,0 +1,78 @@
+[
+    {
+        "question": "How can I save money?",
+        "answer": "To save money effectively, create a budget tracking all income and expenses, cut unnecessary costs like dining out or subscriptions, automate savings transfers to a separate account, pay yourself first before bills, and look for ways to increase income through side gigs."
+    },
+    {
+        "question": "How much should I save for emergency fund?",
+        "answer": "Aim for 3-6 months of essential living expenses in your emergency fund. For most people, this means ₹50,000-₹2,00,000 depending on your monthly expenses. Building this fund protects you from unexpected events like job loss or medical emergencies."
+    },
+    {
+        "question": "What's a good debt-to-income ratio?",
+        "answer": "A good debt-to-income ratio is under 36%. This means your monthly debt payments should be less than 36% of your gross monthly income. For example, if you earn ₹50,000/month, your debt payments should be under ₹18,000/month."
+    },
+    {
+        "question": "How can I improve my credit score?",
+        "answer": "To improve your credit score: pay all bills on time, reduce credit card balances below 30% of limit, avoid opening new credit cards frequently, check your credit report for errors, and maintain a mix of credit types like loans and cards."
+    },
+    {
+        "question": "What's compound interest?",
+        "answer": "Compound interest is when you earn interest on both your original principal and the interest you've already earned. It's powerful for long-term savings. For example, ₹10,000 invested at 7% annual return would grow to ₹19,428 in 10 years due to compounding."
+    },
+    {
+        "question": "Should I invest in mutual funds?",
+        "answer": "Mutual funds are a good investment option for most people because they provide diversification, professional management, and relatively low minimum investments. They suit different risk profiles with options from conservative to aggressive. Consider your goals and risk tolerance before investing."
+    },
+    {
+        "question": "What's the difference between saving and investing?",
+        "answer": "Saving means putting money aside in safe accounts for future use, while investing means putting money into assets that can grow in value but carry risk. Savings are for short-term needs with low returns but capital security, investments offer higher long-term returns but with potential losses."
+    },
+    {
+        "question": "How much should I spend on housing?",
+        "answer": "Housing costs should typically be 25-30% of your take-home pay. This includes rent/mortgage, property taxes, insurance, maintenance, and utilities. For example, if you earn ₹60,000/month after taxes, your total housing costs should be around ₹15,000-₹18,000/month."
+    },
+    {
+        "question": "What's the 50/30/20 rule?",
+        "answer": "The 50/30/20 rule allocates your after-tax income as follows: 50% for needs (food, housing, utilities, transportation), 30% for wants (entertainment, dining out, hobbies), and 20% for savings and debt repayment. This simple formula helps manage your money effectively."
+    },
+    {
+        "question": "How do I make a monthly budget?",
+        "answer": "To create a monthly budget: 1) Calculate total income, 2) List all monthly expenses, 3) Categorize expenses as needs/wants/savings, 4) Compare income vs expenses, 5) Adjust spending to ensure savings, 6) Track actual spending vs budget, 7) Review and adjust monthly."
+    },
+    {
+        "question": "What's a good interest rate for savings account?",
+        "answer": "A good savings account interest rate is 4-6% annually. Rates vary by bank and economic conditions. Compare rates across banks, and consider online banks that often offer higher rates than traditional brick-and-mortar banks."
+    },
+    {
+        "question": "Should I pay off debt or invest?",
+        "answer": "If your debt interest rate is above 7-8%, pay it off first. Otherwise, invest in high-return assets. Compare your debt interest rate with expected investment returns. High-interest debt (credit cards at 15-24%) should always be paid off before investing."
+    },
+    {
+        "question": "How can I reduce monthly expenses?",
+        "answer": "Reduce expenses by: tracking spending for 30 days, cancelling unused subscriptions, cooking at home instead of eating out, using public transport or carpooling, shopping with coupons and during sales, negotiating bills, buying used items, and reducing energy consumption."
+    },
+    {
+        "question": "What's inflation and how does it affect money?",
+        "answer": "Inflation is the rate at which prices increase over time, reducing your purchasing power. For example, if inflation is 5% annually, ₹1,000 today will only buy goods worth ₹950 next year. This is why investing is important - to beat inflation and grow wealth."
+    },
+    {
+        "question": "How much should I contribute to retirement?",
+        "answer": "Aim to contribute at least 15-20% of your annual salary to retirement accounts. For example, if you earn ₹10,00,000/year, save ₹1,50,000-₹2,00,000 annually. Start early to benefit from compound returns. Your employer match is free money - maximize it first."
+    },
+    {
+        "question": "What's a good credit utilization ratio?",
+        "answer": "A good credit utilization ratio is below 30%. This means if you have a ₹1,00,000 credit limit, keep your balance under ₹30,000. Lower is better - aim for 10% or less. High utilization can hurt your credit score significantly."
+    },
+    {
+        "question": "How do I start investing with small amounts?",
+        "answer": "Start small by investing in SIPs (Systematic Investment Plans) with ₹100-₹500/month, or use robo-advisors with low minimums. Choose index funds or ETFs for broad market exposure. Apps like mutual fund platforms make it easy to start with minimal amounts."
+    },
+    {
+        "question": "What's diversification in investing?",
+        "answer": "Diversification means spreading investments across different asset types (stocks, bonds, real estate), sectors, and geographies to reduce risk. Don't put all your money in one company or sector. If one investment loses value, others can balance it out."
+    },
+    {
+        "question": "How can I build wealth long-term?",
+        "answer": "Build wealth through: consistent saving and investing, living below your means, investing in diversified portfolios, continuous learning, multiple income streams, reducing high-interest debt, and maintaining financial discipline over decades, not days."
+    }
+]

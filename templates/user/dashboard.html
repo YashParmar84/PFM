@@ -990,10 +990,10 @@ setInterval(function() {
                         <span>Available: ₹{{ available_for_budget|floatformat:2 }}</span>
                     </div>
                     <div class="mt-2">
-                        <small class="text-info">
+                        {% comment %} <small class="text-info">
                             <i class="fas fa-info-circle"></i>
                             Budgets are automatically adjusted when you spend on unbudgeted categories
-                        </small>
+                        </small> {% endcomment %}
                     </div>
                 </div>
                 {% endif %}

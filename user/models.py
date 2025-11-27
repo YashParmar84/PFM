@@ -19,6 +19,9 @@ class Transaction(models.Model):
         ('healthcare', 'Healthcare'),
         ('education', 'Education'),
         ('savings', 'Savings'),
+        ('salary', 'Salary'),
+        ('freelance', 'Freelance'),
+        ('investment', 'Investment'),
         ('other', 'Other'),
     ]
 

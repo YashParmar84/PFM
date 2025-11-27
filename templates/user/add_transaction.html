@@ -45,17 +45,9 @@
                                 <label for="category" class="form-label">Category</label>
                                 <select class="form-select" id="category" name="category" required>
                                     <option value="">Select Category</option>
-                                    <option value="food">Food & Dining</option>
-                                    <option value="transportation">Transportation</option>
-                                    <option value="entertainment">Entertainment</option>
-                                    <option value="shopping">Shopping</option>
-                                    <option value="bills">Bills & Utilities</option>
-                                    <option value="healthcare">Healthcare</option>
-                                    <option value="education">Education</option>
-                                    <option value="salary">Salary</option>
-                                    <option value="freelance">Freelance</option>
-                                    <option value="investment">Investment</option>
-                                    <option value="other">Other</option>
+                                    {% for value, display in categories %}
+                                    <option value="{{ value }}">{{ display }}</option>
+                                    {% endfor %}
                                 </select>
                             </div>
                         </div>

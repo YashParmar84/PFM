@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from django.db.models import Sum
 from user.models import Transaction, LoanProduct, AIConsultation, Budget, UserProfile
 from django.conf import settings
+from financial_chatbot import answer_financial_question, get_chatbot
 
 
 @login_required
@@ -146,22 +147,21 @@ def ai_chat_api(request):
             total_income = sum(monthly_income.values())
             average_monthly_income = total_income / len(monthly_income)
 
-        # Generate AI response with proper financial insights and suggestions
-        ai_response = generate_ai_response(
-            user_message=user_message,
-            average_monthly_income=average_monthly_income,
-            selected_item=selected_item,
-            monthly_income=monthly_income,
-            selected_item_id=selected_item_id if selected_item_id else None
+        # Generate AI response using NLP model with financial insights and suggestions
+        ai_response = answer_financial_question(
+            question=user_message,
+            user_income=average_monthly_income,
+            item_price=selected_item.price if selected_item and selected_item.price else 0.0,
+            emi=selected_item.emi if selected_item and selected_item.emi else 0.0
         )
 
         response_data = {
             'reply': ai_response.get('message', 'I understand your question. Let me analyze your financial situation and provide personalized recommendations.'),
             'has_item_selected': selected_item is not None,
-            'affordability_analysis': ai_response.get('affordability_analysis', {}),
+            'affordability_analysis': ai_response.get('financial_analysis', []),
             'affordability_score': ai_response.get('affordability_score', 5.0),
             'risk_assessment': ai_response.get('risk_assessment', 'Analysis completed'),
-            'recommended_banks': ai_response.get('recommended_banks', []),
+            'recommended_banks': ai_response.get('recommended_banks', []) if ai_response.get('recommended_banks') else [],
         }
 
         # Always include consultation_id if it exists
@@ -1091,7 +1091,8 @@ def add_transaction(request):
 @login_required
 def transaction_list(request):
     """Transaction list view"""
-    transactions = Transaction.objects.filter(user=request.user).order_by('-date')
+    today = datetime.now().date()
+    transactions = Transaction.objects.filter(user=request.user, date__lte=today).order_by('-date')
     return render(request, 'user/transaction_list.html', {'transactions': transactions})
 
 
