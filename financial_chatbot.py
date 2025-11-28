@@ -316,13 +316,14 @@ class SpecializedFinancialChatbot:
 
         return plans
 
-    def process_message(self, message: str, user_context: Dict = None) -> Dict:
+    def process_message(self, message: str, user_context: Dict = None, user: User = None) -> Dict:
         """
         Main message processing function with updated rules
 
         Args:
             message: User's message
             user_context: Dict with user data like income_history, current_product, etc.
+            user: Django User object (optional)
 
         Returns:
             Response dict with message, data, and state info
@@ -356,6 +357,11 @@ class SpecializedFinancialChatbot:
                 return self._handle_affordability_alternatives(user_context, greeting)
             # Clear the affordability response waiting state
             del user_context['awaiting_affordability_response']
+
+        # CHECK FOR PLAN MODIFICATION INPUTS
+        # Handle plan modification responses (e.g., "change downpayment to 25%")
+        if user_context.get('awaiting_plan_modification') and user_context.get('modifying_plan_id'):
+            return self._handle_plan_modification_input(message, user_context, user)
 
         # Check for greetings FIRST - but always start with greeting if it's a greeting or direct product ask
         greeting_words = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings']
@@ -440,6 +446,20 @@ class SpecializedFinancialChatbot:
 
         if 'show my saved plans' in message_lower:
             response = self._handle_show_saved_plans(message, user_context)
+            response['message'] = f"{greeting}\n\n{response['message']}"
+            response['show_greeting'] = True
+            return response
+
+        # Handle modify saved plans
+        if 'modify' in message_lower and ('saved' in message_lower or 'plans' in message_lower):
+            response = self._handle_modify_saved_plans(message, user_context, user if 'user' in locals() else None)
+            response['message'] = f"{greeting}\n\n{response['message']}"
+            response['show_greeting'] = True
+            return response
+
+        # Handle unsave plan
+        if ('unsave' in message_lower or 'cancel' in message_lower) and 'plan' in message_lower:
+            response = self._handle_unsave_plan(message, user_context, user if 'user' in locals() else None)
             response['message'] = f"{greeting}\n\n{response['message']}"
             response['show_greeting'] = True
             return response
@@ -955,38 +975,44 @@ class SpecializedFinancialChatbot:
         # Get current recommendation from context - try to extract from current product analysis
         recommendation = None
         selected_product = user_context.get('selected_product')
+        category = user_context.get('category')
 
+        # Get product price
         if selected_product and isinstance(selected_product, dict) and 'price' in selected_product:
-            price = selected_product['price']
-            best_emi = user_context.get('emi_breakdown', [])[:1] or [{'emi': 0, 'tenure': 24}]
-            loan_amount = price * 0.8  # Assume 20% downpayment
-            interest_rate = user_context.get('bank_options', [{}])[0].get('rate', 13.0)
-
-            recommendation = {
-                'downpayment': 20.0,
-                'loan_amount': loan_amount,
-                'interest_rate': interest_rate,
-                'tenure': best_emi[0].get('tenure', 24),
-                'emi': best_emi[0].get('emi', 0),
-                'total_cost': best_emi[0].get('total_payable', price),
-            }
+            product_price = selected_product['price']
         elif user_context.get('product_price'):
-            # Fallback method - use product_price directly
-            price = user_context.get('product_price', 0)
+            product_price = user_context.get('product_price', 0)
+        else:
+            # Try to get from item object if it's an object
+            if selected_product and hasattr(selected_product, 'price'):
+                product_price = float(selected_product.price)
+            else:
+                product_price = 0
+
+        if product_price > 0:
+            # Calculate EMI properly
             best_emi = user_context.get('emi_breakdown', [])[:1] or [{'emi': 0, 'tenure': 24}]
-            loan_amount = price * 0.8  # Assume 20% downpayment
-            interest_rate = user_context.get('bank_options', [{}])[0].get('rate', 13.0)
+            loan_amount = product_price * 0.8  # Assume 20% downpayment
+            interest_rate = user_context.get('bank_options', [{}])[0].get('rate', self.fallback_rates.get(category, 13.0))
+
+            # Use existing EMI if available, or calculate it
+            emi_value = best_emi[0].get('emi', 0) if best_emi else 0
+            if emi_value <= 0:
+                # Calculate EMI
+                emi_value = self.calculate_emi(loan_amount, interest_rate, 24)  # Default 24 months
+
+            total_cost = emi_value * 24 + (product_price * 0.2)  # Downpayment + EMI*tenure
 
             recommendation = {
                 'downpayment': 20.0,
                 'loan_amount': loan_amount,
                 'interest_rate': interest_rate,
-                'tenure': best_emi[0].get('tenure', 24),
-                'emi': best_emi[0].get('emi', 0),
-                'total_cost': best_emi[0].get('total_payable', price),
+                'tenure': best_emi[0].get('tenure', 24) if best_emi else 24,
+                'emi': emi_value,
+                'total_cost': total_cost,
             }
 
-        if not recommendation:
+        if not recommendation or product_price <= 0:
             return {
                 'message': f"{greeting}\nI don't have a current plan to save. Please discuss a product purchase first.",
                 'show_greeting': True
@@ -1013,13 +1039,13 @@ class SpecializedFinancialChatbot:
                     user=user,
                     plan_id=plan_id,
                     product=user_context.get('selected_product', {}).get('name', 'Unknown Product'),
-                    price=Decimal(str(user_context.get('product_price', 0))),
+                    price=Decimal(str(product_price)),
                     downpayment=Decimal(str(recommendation.get('downpayment', 20.0))),
                     loan_amount=Decimal(str(recommendation.get('loan_amount', 0))),
                     interest_rate=Decimal(str(recommendation.get('interest_rate', 13.0))),
                     tenure=recommendation.get('tenure', 24),
                     emi=Decimal(str(recommendation.get('emi', 0))),
-                    total_paid=Decimal(str(recommendation.get('total_cost', user_context.get('product_price', 0)))),
+                    total_paid=Decimal(str(recommendation.get('total_cost', product_price))),
                     notes=f"Auto-saved plan for {user_context.get('selected_product', {}).get('name', 'product')}",
                 )
 
@@ -2073,6 +2099,343 @@ class SpecializedFinancialChatbot:
             'calculated_price_range': max_affordable_price,
             'max_affordable_emi': affordable_emi_max if 'affordable_emi_max' in locals() else None,
             'awaiting_response': 'product_selection' if affordable_products else 'explore_alternatives'
+        }
+
+    def _handle_modify_saved_plans(self, message: str, user_context: Dict, user: User = None) -> Dict:
+        """Handle request to modify saved plans - show plans and allow selection for modification"""
+        greeting = "Hello! How can I help you today?"
+
+        # Check if user wants to modify a specific plan
+        plan_num_match = re.search(r'modify\s+plan\s*(?:#|)(\w+)', message.lower())
+        if plan_num_match:
+            plan_id = f"plan_{plan_num_match.group(1)}"
+            return self._handle_modify_specific_plan(plan_id, user_context, user)
+
+        # Otherwise, show all saved plans for modification
+        saved_plans = []
+
+        if user:
+            # Get plans from database
+            db_plans = SavedPlan.objects.filter(user=user).order_by('-created_at')
+            for plan in db_plans:
+                saved_plans.append({
+                    'plan_id': plan.plan_id,
+                    'product': plan.product,
+                    'price': float(plan.price),
+                    'downpayment': float(plan.downpayment),
+                    'loan_amount': float(plan.loan_amount),
+                    'interest_rate': float(plan.interest_rate),
+                    'tenure': plan.tenure,
+                    'emi': float(plan.emi),
+                    'total_paid': float(plan.total_paid),
+                    'notes': plan.notes,
+                    'created_at': plan.created_at.isoformat(),
+                })
+
+        if not saved_plans:
+            return {
+                'message': f"{greeting}\nYou don't have any saved plans to modify. Create a plan first by discussing a product purchase.",
+                'show_greeting': True
+            }
+
+        response = f"{greeting}\n\n**Your Saved Financial Plans - Select Plan to Modify**\n\n"
+        for i, plan in enumerate(saved_plans, 1):
+            response += f"**{i}. Plan #{plan['plan_id']} - {plan['product']}**\n"
+            response += f"   • Price: ₹{plan['price']:,.0f}\n"
+            response += f"   • EMI: ₹{plan['emi']:,.0f} ({plan['tenure']} months)\n"
+            response += f"   • Total Paid: ₹{plan['total_paid']:,.0f}\n\n"
+
+        response += "**To modify a plan, tell me the plan number** (e.g., \"modify plan 1\" or \"modify plan_1\")\n\n"
+        response += "**What parameter would you like to change?**\n"
+        response += "• Downpayment percentage\n"
+        response += "• Loan tenure (months)\n"
+        response += "• Interest rate\n\n"
+        response += "**Current example:** Say \"modify plan 1\" to change the first plan."
+
+        return {
+            'message': response,
+            'saved_plans': saved_plans,
+            'action': 'show_plans_for_modification',
+            'show_greeting': True
+        }
+
+    def _handle_modify_specific_plan(self, plan_id: str, user_context: Dict, user: User = None) -> Dict:
+        """Handle modification of a specific saved plan"""
+        greeting = "Hello! How can I help you today?"
+
+        if not user:
+            return {
+                'message': f"{greeting}\nPlease log in to modify plans.",
+                'show_greeting': True
+            }
+
+        try:
+            plan = SavedPlan.objects.get(user=user, plan_id=plan_id)
+        except SavedPlan.DoesNotExist:
+            return {
+                'message': f"{greeting}\nPlan {plan_id} not found. Please check your saved plans.",
+                'show_greeting': True
+            }
+
+        # Show current plan details and modification options
+        response = f"{greeting}\n\n**Modifying Plan #{plan_id} - {plan.product}**\n\n"
+        response += f"**Current Plan Details:**\n"
+        response += f"• Product: {plan.product}\n"
+        response += f"• Price: ₹{plan.price:,.0f}\n"
+        response += f"• Downpayment: {plan.downpayment}%\n"
+        response += f"• Loan Amount: ₹{plan.loan_amount:,.0f}\n"
+        response += f"• Interest Rate: {plan.interest_rate}%\n"
+        response += f"• Tenure: {plan.tenure} months\n"
+        response += f"• EMI: ₹{plan.emi:,.0f}\n"
+        response += f"• Total Paid: ₹{plan.total_paid:,.0f}\n\n"
+
+        response += "**What would you like to change?**\n\n"
+        response += "**Available Options:**\n"
+        response += "1. **Change downpayment** - Reply \"change downpayment to 25%\"\n"
+        response += "2. **Change tenure** - Reply \"change tenure to 36 months\"\n"
+        response += "3. **Change interest rate** - Reply \"change rate to 12.5%\"\n\n"
+
+        response += "**Examples:**\n"
+        response += "• \"change downpayment to 30%\"\n"
+        response += "• \"change tenure to 48 months\"\n"
+        response += "• \"change rate to 11.5%\"\n\n"
+
+        response += "**The new EMI and total cost will be recalculated automatically.**"
+
+        # Set context for awaiting modification input
+        user_context['awaiting_plan_modification'] = True
+        user_context['modifying_plan_id'] = plan_id
+        user_context['current_plan_data'] = {
+            'product': plan.product,
+            'price': float(plan.price),
+            'original_downpayment': float(plan.downpayment),
+            'original_tenure': plan.tenure,
+            'original_rate': float(plan.interest_rate)
+        }
+
+        return {
+            'message': response,
+            'awaiting_plan_modification': True,
+            'modifying_plan_id': plan_id,
+            'current_plan': {
+                'plan_id': plan.plan_id,
+                'product': plan.product,
+                'price': float(plan.price),
+                'downpayment': float(plan.downpayment),
+                'tenure': plan.tenure,
+                'interest_rate': float(plan.interest_rate),
+                'emi': float(plan.emi),
+                'total_paid': float(plan.total_paid)
+            },
+            'show_greeting': True
+        }
+
+    def _handle_unsave_plan(self, message: str, user_context: Dict, user: User = None) -> Dict:
+        """Handle request to unsave/cancel a plan"""
+        greeting = "Hello! How can I help you today?"
+
+        # Extract plan ID from message
+        plan_match = re.search(r'(?:unsave|cancel)\s+plan\s*(?:#|)(\w+)', message.lower())
+        if not plan_match:
+            return {
+                'message': f"{greeting}\nPlease specify which plan to remove. Example: \"unsave plan_1\" or \"cancel plan 2\"",
+                'show_greeting': True
+            }
+
+        plan_id_indicator = plan_match.group(1)
+        plan_id = f"plan_{plan_id_indicator}" if not plan_id_indicator.startswith('plan_') else plan_id_indicator
+
+        if not user:
+            return {
+                'message': f"{greeting}\nPlease log in to manage plans.",
+                'show_greeting': True
+            }
+
+        try:
+            plan = SavedPlan.objects.get(user=user, plan_id=plan_id)
+            product_name = plan.product
+            plan.delete()
+
+            return {
+                'message': f"{greeting}\n✅ **Plan unsaved successfully!**\n\nRemoved plan for **{product_name}**.\n\nSay \"show my saved plans\" to see remaining plans.",
+                'plan_removed': plan_id,
+                'product_name': product_name,
+                'show_greeting': True
+            }
+
+        except SavedPlan.DoesNotExist:
+            return {
+                'message': f"{greeting}\nPlan {plan_id} not found. Please check your saved plans.",
+                'show_greeting': True
+            }
+        except Exception as e:
+            return {
+                'message': f"{greeting}\n❌ Error removing plan: {str(e)}",
+                'show_greeting': True
+            }
+
+    def _handle_plan_modification_input(self, message: str, user_context: Dict, user: User = None) -> Dict:
+        """Handle user input for plan modification (e.g., 'change downpayment to 25%')"""
+        greeting = "Hello! How can I help you today?"
+
+        # Extract modification parameters from the message
+        message_lower = message.lower().strip()
+
+        if not user:
+            return {
+                'message': f"{greeting}\nPlease log in to modify plans.",
+                'show_greeting': True
+            }
+
+        # Get plan ID from context
+        plan_id = user_context.get('modifying_plan_id')
+        if not plan_id:
+            return {
+                'message': f"{greeting}\nNo plan selected for modification. Please say 'modify saved plans' first.",
+                'show_greeting': True
+            }
+
+        try:
+            plan = SavedPlan.objects.get(user=user, plan_id=plan_id)
+        except SavedPlan.DoesNotExist:
+            return {
+                'message': f"{greeting}\nPlan {plan_id} not found. Please check your saved plans.",
+                'show_greeting': True
+            }
+
+        # Get original values for recalculation
+        original_data = user_context.get('current_plan_data', {})
+
+        new_downpayment_pct = original_data.get('original_downpayment', float(plan.downpayment))
+        new_tenure = original_data.get('original_tenure', plan.tenure)
+        new_rate = original_data.get('original_rate', float(plan.interest_rate))
+
+        changes_made = []
+
+        # Parse downpayment changes
+        dp_match = re.search(r'change\s+downpayment\s+to\s*(\d+(?:\.\d+)?)\s*%', message_lower)
+        if dp_match:
+            try:
+                new_downpayment_pct = float(dp_match.group(1))
+                # Validate downpayment percentage
+                if 0 <= new_downpayment_pct <= 100:
+                    changes_made.append(f"Downpayment: {new_downpayment_pct}%")
+                else:
+                    return {
+                        'message': f"{greeting}\n❌ Invalid downpayment percentage. Please use a value between 0% and 100%.",
+                        'awaiting_plan_modification': True,
+                        'modifying_plan_id': plan_id,
+                        'show_greeting': True
+                    }
+            except ValueError:
+                pass
+
+        # Parse tenure changes
+        tenure_match = re.search(r'change\s+tenure\s+to\s*(\d+)\s*month', message_lower)
+        if tenure_match:
+            try:
+                new_tenure = int(tenure_match.group(1))
+                # Validate tenure (6-60 months reasonable range)
+                if 6 <= new_tenure <= 60:
+                    changes_made.append(f"Tenure: {new_tenure} months")
+                else:
+                    return {
+                        'message': f"{greeting}\n❌ Invalid tenure. Please use a value between 6 and 60 months.",
+                        'awaiting_plan_modification': True,
+                        'modifying_plan_id': plan_id,
+                        'show_greeting': True
+                    }
+            except ValueError:
+                pass
+
+        # Parse rate changes
+        rate_match = re.search(r'change\s+rate\s+to\s*(\d+(?:\.\d+)?)\s*%', message_lower)
+        if rate_match:
+            try:
+                new_rate = float(rate_match.group(1))
+                # Validate interest rate (reasonable range 8-25%)
+                if 8.0 <= new_rate <= 25.0:
+                    changes_made.append(f"Interest Rate: {new_rate}%")
+                else:
+                    return {
+                        'message': f"{greeting}\n❌ Invalid interest rate. Please use a value between 8% and 25%.",
+                        'awaiting_plan_modification': True,
+                        'modifying_plan_id': plan_id,
+                        'show_greeting': True
+                    }
+            except ValueError:
+                pass
+
+        # If no changes detected, show error and keep awaiting
+        if not changes_made:
+            return {
+                'message': f"{greeting}\n❌ I couldn't understand your modification. Please use one of these formats:\n• change downpayment to 25%\n• change tenure to 36 months\n• change rate to 12.5%",
+                'awaiting_plan_modification': True,
+                'modifying_plan_id': plan_id,
+                'show_greeting': True
+            }
+
+        # Recalculate EMI with new parameters
+        product_price = float(plan.price)
+
+        # Calculate new loan amount based on downpayment percentage
+        downpayment_amount = product_price * (new_downpayment_pct / 100)
+        new_loan_amount = product_price - downpayment_amount
+
+        # Calculate new EMI
+        new_emi = self.calculate_emi(new_loan_amount, new_rate, new_tenure)
+
+        # Calculate new total paid
+        new_total_paid = downpayment_amount + (new_emi * new_tenure)
+
+        # Update the plan in database
+        plan.downpayment = Decimal(str(new_downpayment_pct))
+        plan.loan_amount = Decimal(str(new_loan_amount))
+        plan.interest_rate = Decimal(str(new_rate))
+        plan.tenure = new_tenure
+        plan.emi = Decimal(str(new_emi))
+        plan.total_paid = Decimal(str(new_total_paid))
+        plan.save()
+
+        # Create response showing changes
+        response = f"{greeting}\n\n✅ **Plan Modified Successfully!**\n\n"
+        response += f"**Updated Plan #{plan_id} - {plan.product}**\n\n"
+        response += "**Changes Made:**\n"
+        for change in changes_made:
+            response += f"• {change}\n"
+        response += "\n"
+
+        response += "**Updated Plan Details:**\n"
+        response += f"• Product Price: ₹{product_price:,.0f}\n"
+        response += f"• Downpayment: {new_downpayment_pct}% (₹{downpayment_amount:,.0f})\n"
+        response += f"• Loan Amount: ₹{new_loan_amount:,.0f}\n"
+        response += f"• Interest Rate: {new_rate}% p.a.\n"
+        response += f"• Tenure: {new_tenure} months\n"
+        response += f"• New EMI: ₹{new_emi:,.0f}\n"
+        response += f"• Total Payable: ₹{new_total_paid:,.0f}\n\n"
+
+        # Show savings/benefits if applicable
+        original_emi = float(plan.emi) - new_emi  # Difference (simplified)
+        if abs(original_emi) > 100:  # Significant change
+            if original_emi > 0:
+                response += f"🎉 **Great! Your EMI decreased by ₹{original_emi:,.0f} per month!**\n\n"
+            else:
+                response += f"⚠️ **Note: Your EMI increased by ₹{-original_emi:,.0f} per month.**\n\n"
+
+        response += "**Say 'show my saved plans' to view all plans or 'modify another plan' to continue.**"
+
+        # Clear modification context
+        user_context.pop('awaiting_plan_modification', None)
+        user_context.pop('modifying_plan_id', None)
+        user_context.pop('current_plan_data', None)
+
+        return {
+            'message': response,
+            'plan_modified': plan_id,
+            'changes': changes_made,
+            'new_emi': new_emi,
+            'new_total_paid': new_total_paid,
+            'show_greeting': True
         }
 
 # Global instance
