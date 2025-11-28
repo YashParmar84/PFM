@@ -10,6 +10,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import math
+import random
 from decimal import Decimal, ROUND_HALF_UP
 from django.contrib.auth.models import User
 from django.conf import settings
@@ -82,6 +83,11 @@ class SpecializedFinancialChatbot:
 
         # Conversation state tracking (will be per user in Django)
         self.conversation_states = {}
+
+        # Initialize conversation history
+        self.conversation_history = {}
+
+
 
     def load_excel_data(self):
         """Load data from Excel file"""
@@ -334,6 +340,8 @@ class SpecializedFinancialChatbot:
         message_lower = message.lower().strip()
         greeting = "Hello! How can I help you today?"
 
+
+
         # Extract user information from context
         income_history = user_context.get('income_history', [])
         average_income = user_context.get('average_income')
@@ -450,9 +458,19 @@ class SpecializedFinancialChatbot:
             response['show_greeting'] = True
             return response
 
-        # Handle modify saved plans
-        if 'modify' in message_lower and ('saved' in message_lower or 'plans' in message_lower):
-            response = self._handle_modify_saved_plans(message, user_context, user if 'user' in locals() else None)
+        # Handle modify saved plans - check for specific plan modification first
+        if 'modify' in message_lower and ('plan' in message_lower or 'saved' in message_lower or 'plans' in message_lower):
+            # Check if user specified a specific plan number (e.g., "modify plan 1")
+            if 'plan' in message_lower and re.search(r'\d+', message_lower):
+                plan_num_match = re.search(r'modify\s+plan\s*(?:#|)(\w+)', message.lower())
+                if plan_num_match:
+                    plan_id = f"plan_{plan_num_match.group(1)}" if not plan_num_match.group(1).startswith('plan_') else plan_num_match.group(1)
+                    response = self._handle_modify_specific_plan(plan_id, user_context, user if 'user' in locals() else None)
+                else:
+                    response = self._handle_modify_saved_plans(message, user_context, user if 'user' in locals() else None)
+            else:
+                response = self._handle_modify_saved_plans(message, user_context, user if 'user' in locals() else None)
+
             response['message'] = f"{greeting}\n\n{response['message']}"
             response['show_greeting'] = True
             return response
@@ -487,8 +505,9 @@ class SpecializedFinancialChatbot:
 
         # Check if off-topic - only if not product/saving/affordability related
         if not self._is_on_topic(message):
+            greeting = "Hello! How can I help you today?"
             return {
-                'message': "me nahi chahta ki me apke ex ki tarah apko ignore karu to krupya apse nivedan hai ki ap sahi question puchiye abhar",
+                'message': f"{greeting}\n\nI can assist you with product purchase planning, EMI calculations, affordability checks, and saving plans for purchases, travel, or hospitality. Please ask me something related to financial planning.",
                 'off_topic': True
             }
 
@@ -1285,48 +1304,94 @@ class SpecializedFinancialChatbot:
                     }
                     products.append(product_dict)
 
-            # Get diverse product selection: low, medium, and high tier products
-            tier_groups = {}
-            for product in products:
-                tier = product.get('tier', product.get('Tier', 'Standard')).lower()
-                if tier not in tier_groups:
-                    tier_groups[tier] = []
-                tier_groups[tier].append(product)
+            # Get representative product selection based on price range for consistency
+            if not products:
+                return self._get_fallback_products(category)
 
-            # Select representative products from each tier
+            # Sort products by price for consistent selection
+            products.sort(key=lambda x: x['price'])
+
+            # Distribute products across price ranges for variety
+            total_products = len(products)
             selected_products = []
 
-            # Always include low tier (most affordable)
-            selected_products.extend(tier_groups.get('low', [])[:3])
+            # Select from different price segments if available
+            if total_products >= 8:
+                # Take 2 from lower third, 4 from middle third, 2 from upper third
+                indices = [
+                    0, max(1, total_products//6),  # low price
+                    total_products//3, total_products//2,  # mid-low price
+                    total_products//2, (2*total_products)//3,  # mid-high price
+                    (4*total_products)//6, (5*total_products)//6  # high price
+                ]
+                for idx in indices[:8]:  # Limit to 8 products max
+                    if idx < total_products:
+                        selected_products.append(products[idx])
 
-            # Include medium tier (mid-range options) - ensure Kia Sonet is included
-            medium_prods = tier_groups.get('medium', [])
-            kia_sonet = next((p for p in medium_prods if p['name'] == 'Kia Sonet'), None)
-            if kia_sonet:
-                # Always include Kia Sonet first
-                selected_products.append(kia_sonet)
-                # Then add 2 more from medium tier (excluding Kia Sonet if it's already added)
-                remaining_medium = [p for p in medium_prods if p != kia_sonet]
-                selected_products.extend(remaining_medium[:2])
+            elif total_products >= 5:
+                # For smaller datasets, take from different intervals
+                step = max(1, total_products // 5)
+                for i in range(0, min(total_products, 8), step):
+                    selected_products.append(products[i])
+
             else:
-                selected_products.extend(medium_prods[:3])
+                # For very small datasets, take all available
+                selected_products = products[:8]
 
-            # Include high tier (premium options)
-            selected_products.extend(tier_groups.get('high', [])[:2])
+            # Ensure we have at least 3 products for meaningful suggestions
+            if len(selected_products) < 3 and products:
+                # If not enough after selection, take first 3
+                selected_products = products[:3]
 
-            # If we don't have enough, fill with remaining products
-            remaining_products = [p for p in products if p not in selected_products]
-            while len(selected_products) < 8 and remaining_products:
-                selected_products.append(remaining_products.pop(0))
-
-            return selected_products[:8]
+            return selected_products
 
         except Exception as e:
             print(f"Error getting product suggestions: {e}")
-            return [
-                {'name': 'Generic Product A', 'price': 50000, 'specs': 'Standard features'},
-                {'name': 'Generic Product B', 'price': 75000, 'specs': 'Premium features'}
+            return self._get_fallback_products(category)
+
+    def _get_fallback_products(self, category: str) -> List[Dict]:
+        """Get fallback products when Excel data is not available"""
+        fallback_products = {
+            'four_wheeler': [
+                {'name': 'Hatchback Car', 'price': 600000, 'specs': 'Fuel efficient compact car'},
+                {'name': 'Sedan Car', 'price': 800000, 'specs': 'Comfortable family sedan'},
+                {'name': 'SUV', 'price': 1200000, 'specs': 'Spacious family SUV'}
+            ],
+            'two_wheeler': [
+                {'name': 'Standard Motorcycle', 'price': 80000, 'specs': 'Fuel efficient commuter bike'},
+                {'name': 'Scooter', 'price': 60000, 'specs': 'Easy handling for daily commute'},
+                {'name': 'Sports Bike', 'price': 150000, 'specs': 'High performance motorcycle'}
+            ],
+            'electronics': [
+                {'name': 'Smartphone', 'price': 25000, 'specs': 'Latest Android smartphone'},
+                {'name': 'Laptop', 'price': 50000, 'specs': 'Mid-range laptop for work/study'},
+                {'name': 'Smart TV', 'price': 40000, 'specs': '43-inch LED smart TV'}
+            ],
+            'home_loan': [
+                {'name': '1BHK Flat', 'price': 2000000, 'specs': 'Standard amenities, metro connectivity'},
+                {'name': '2BHK Flat', 'price': 3500000, 'specs': 'Premium location, modern facilities'}
+            ],
+            'personal_loan': [
+                {'name': 'Education Loan', 'price': 500000, 'specs': 'For higher education abroad'},
+                {'name': 'Wedding Loan', 'price': 300000, 'specs': 'Complete wedding package financing'}
+            ],
+            'gold_loan': [
+                {'name': 'Gold Jewelry', 'price': 100000, 'specs': '24K pure gold ornaments'},
+                {'name': 'Gold Coins', 'price': 200000, 'specs': 'Investment grade gold coins'}
+            ],
+            'travel': [
+                {'name': 'Domestic Vacation', 'price': 50000, 'specs': '4-star hotels, inclusive tours'},
+                {'name': 'International Trip', 'price': 150000, 'specs': 'Economy class, package deal'}
+            ],
+            'hospitality': [
+                {'name': 'Business Hotel', 'price': 80000, 'specs': 'Business class, conference facilities'},
+                {'name': 'Luxury Resort', 'price': 150000, 'specs': 'Premium resort, spa included'}
             ]
+        }
+        return fallback_products.get(category, [
+            {'name': 'Generic Product A', 'price': 50000, 'specs': 'Standard features'},
+            {'name': 'Generic Product B', 'price': 75000, 'specs': 'Premium features'}
+        ])
 
     def _provide_product_analysis(self, selected_product: Dict, category: str, income: float, greeting: str, user_context: Dict) -> Dict:
         """Phase 2: Provide complete product analysis with EMIs"""

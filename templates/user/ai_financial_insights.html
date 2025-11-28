@@ -532,33 +532,67 @@ function applyFilters() {
     const emiRangeFilter = document.getElementById('emiRangeFilter').value;
     const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
     const sortFilter = document.getElementById('sortFilter').value;
-    
+    const userIncome = {{ average_monthly_income|default:0 }};
+
     // Filter products
     filteredProducts = allProducts.filter(product => {
         // Category filter
         if (categoryFilter && product.category !== categoryFilter) {
             return false;
         }
-        
+
+        // AFFORDABILITY FILTERING: Only filter for affordability in categories OTHER than home_loan and gold_loan
+        const affordableCategories = ['four_wheeler', 'two_wheeler', 'electronics', 'personal_loan', 'travel', 'hospitality'];
+        if (affordableCategories.includes(product.category) && userIncome > 0) {
+            // Calculate if product is affordable (EMI should not exceed 30% of income)
+            // Using standard loan assumptions: 20% down payment, 24-month tenure, standard interest rates
+            const downPaymentPercent = 20;
+            const loanAmount = product.price * (1 - downPaymentPercent/100);
+
+            // Get appropriate interest rate based on category
+            const categoryRates = {
+                'four_wheeler': 13.0,
+                'two_wheeler': 11.8,
+                'electronics': 14.5,
+                'personal_loan': 13.2,
+                'travel': 12.0,
+                'hospitality': 12.0
+            };
+            const interestRate = categoryRates[product.category] || 13.0;
+
+            // Calculate EMI using standard formula
+            const monthlyRate = interestRate / (12 * 100);
+            const tenureMonths = 24; // Standard tenure for comparison
+            const emi = loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths) /
+                       (Math.pow(1 + monthlyRate, tenureMonths) - 1);
+
+            // Check if EMI is within affordable range (30% of income)
+            const maxAffordableEMI = userIncome * 0.30;
+            if (emi > maxAffordableEMI) {
+                return false; // Product is not affordable
+            }
+        }
+        // For home_loan and gold_loan categories, show all products regardless of affordability
+
         // Price range filter
         if (priceRangeFilter) {
             if (!isPriceInRange(product.price, priceRangeFilter)) {
                 return false;
             }
         }
-        
+
         // Bank filter
         if (bankFilter && product.bank_name !== bankFilter) {
             return false;
         }
-        
+
         // EMI range filter
         if (emiRangeFilter) {
             if (!isEMIInRange(product.emi, emiRangeFilter)) {
                 return false;
             }
         }
-        
+
         // Search filter
         if (searchFilter) {
             const searchText = (product.model_name + ' ' + product.bank_name).toLowerCase();
@@ -566,13 +600,13 @@ function applyFilters() {
                 return false;
             }
         }
-        
+
         return true;
     });
-    
+
     // Sort products
     sortProducts(sortFilter);
-    
+
     // Load filtered products
     loadProducts();
 }
@@ -748,6 +782,15 @@ function askAI() {
 }
 
 function showAIResults(data) {
+    // Check if this is a "piche chalo" response that should replace current chat
+    if (data.replace_current_chat) {
+        // For piche chalo, show only the last response without additional analysis
+        let formattedReply = formatAIResponse(data.reply);
+        let html = `<div class="ai-response">${formattedReply}</div>`;
+        document.getElementById('aiAnalysisResults').innerHTML = html;
+        return;
+    }
+
     // Format the AI response - convert markdown-like syntax to proper HTML
     let formattedReply = formatAIResponse(data.reply);
     let html = `<div class="ai-response">${formattedReply}</div>`;
@@ -772,6 +815,12 @@ function showAIResults(data) {
                 </div>
             </div>
         `;
+    }
+
+    // Show financial plans if available
+    if (data.financial_plans && data.financial_plans.length > 0) {
+        displayFinancialPlans(data.financial_plans);
+        document.getElementById('financialPlansContainer').style.display = 'block';
     }
 
     document.getElementById('aiAnalysisResults').innerHTML = html;

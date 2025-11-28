@@ -168,7 +168,7 @@ def ai_chat_api(request):
             user_context.update(recent_consultation.conversation_context)
             print(f"DEBUG: Loaded conversation context from consultation {recent_consultation.id}")
 
-        # Generate AI response using the specialized chatbot
+            # Generate AI response using the specialized chatbot
         chatbot = get_chatbot()
 
         # For save/show commands, get the user object from the imports
@@ -182,7 +182,13 @@ def ai_chat_api(request):
             elif 'show my saved plans' in user_message.lower():
                 ai_response = chatbot._handle_show_saved_plans(user_message, user_context, current_user)
             else:
+                # Process the message
                 ai_response = chatbot.process_message(user_message, user_context)
+
+                # Store the current response for "piche chalo" functionality (going back to last chat)
+                # Only store if it's not a "piche chalo" replacement response
+                if not (ai_response and ai_response.get('replace_current_chat')):
+                    user_context['last_response'] = ai_response
 
             # After processing, save the updated context back to the consultation
             # Prepare context data to save (exclude temporary or non-serializable items)
@@ -192,7 +198,7 @@ def ai_chat_api(request):
                 'selected_product', 'product_selected', 'total_savings_needed', 'saving_plan_target_product',
                 'saving_plan_target_price', 'saving_plan_income', 'temp_savings', 'temp_savings_type',
                 'available_suggestions', 'product_selected', 'last_message', 'average_income',
-                'income_history', 'user_id'
+                'income_history', 'user_id', 'last_response'  # Add last_response for piche chalo functionality
             ]
 
             for key in persist_keys:
@@ -250,6 +256,10 @@ def ai_chat_api(request):
             'risk_assessment': 'Analysis completed',
             'recommended_banks': ai_response.get('rates', []),
         }
+
+        # Add replace_current_chat flag if present in ai_response (for piche chalo functionality)
+        if ai_response.get('replace_current_chat'):
+            response_data['replace_current_chat'] = ai_response.get('replace_current_chat')
 
         # Add product-specific data if available
         if 'product_category' in ai_response:
@@ -426,27 +436,27 @@ def generate_financial_plans_api(request):
         data = json.loads(request.body)
         consultation_id = data.get('consultation_id')
 
-        print(f"🔍 DEBUG: generate_financial_plans_api called with data: {data}")
+        print(f"DEBUG: generate_financial_plans_api called with data: {data}")
 
         if not consultation_id:
-            print("❌ DEBUG: No consultation_id provided")
+            print("ERROR: DEBUG: No consultation_id provided")
             return JsonResponse({'error': 'Consultation ID is required'}, status=400)
 
         # Get the consultation
         try:
             consultation = AIConsultation.objects.get(id=consultation_id, user=request.user)
-            print(f"📊 DEBUG: Found consultation: {consultation.id}")
-            print(f"📊 DEBUG: Consultation selected_item: {consultation.selected_item}")
-            print(f"📊 DEBUG: Consultation ai_recommendation: {consultation.ai_recommendation}")
-            print(f"📊 DEBUG: Consultation fallback_item_data: {getattr(consultation, 'fallback_item_data', 'Not available')}")
-            print(f"📊 DEBUG: Consultation user_income: {consultation.user_income}")
+            print(f"DEBUG: Found consultation: {consultation.id}")
+            print(f"DEBUG: Consultation selected_item: {consultation.selected_item}")
+            print(f"DEBUG: Consultation ai_recommendation: {consultation.ai_recommendation}")
+            print(f"DEBUG: Consultation fallback_item_data: {getattr(consultation, 'fallback_item_data', 'Not available')}")
+            print(f"DEBUG: Consultation user_income: {consultation.user_income}")
         except AIConsultation.DoesNotExist:
             print(f"❌ DEBUG: Consultation not found: {consultation_id}")
             return JsonResponse({'error': 'Consultation not found'}, status=404)
 
         # Get selected item from consultation
         selected_item = consultation.selected_item
-        print(f"🔍 DEBUG: selected_item initially: {selected_item}")
+        print(f"DEBUG: selected_item initially: {selected_item}")
 
         # If no selected item but we have fallback data, create a temporary object
         if not selected_item:
