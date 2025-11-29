@@ -1,0 +1,504 @@
+[
+    {
+        "query": "Loan options for Datsun redi-GO",
+        "bank": "State Bank of India (SBI)",
+        "response_format": {
+            "product_confirmation": {
+                "product": "Datsun redi-GO",
+                "current_price": "₹400,000",
+                "specifications": "Car - Low tier"
+            },
+            "selected_bank_option": {
+                "bank": "State Bank of India (SBI)",
+                "interest_rate": "9.0% p.a.",
+                "pros": [
+                    "Government backed",
+                    "Maximum loan amount",
+                    "Flexible tenure"
+                ],
+                "cons": [
+                    "Higher processing fees",
+                    "More documentation"
+                ]
+            },
+            "emi_calculation_results": {
+                "product_price": "₹400,000",
+                "downpayment_percent": "20%",
+                "downpayment_amount": "₹80,000",
+                "loan_amount": "₹320,000",
+                "interest_rate": "9.0% per annum",
+                "emi_options": [
+                    {
+                        "tenure": "6 months",
+                        "emi": "₹54,742.05",
+                        "total_payable": "₹408,452.30",
+                        "interest_paid": "₹8,452.30"
+                    },
+                    {
+                        "tenure": "12 months",
+                        "emi": "₹27,984.47",
+                        "total_payable": "₹415,813.64",
+                        "interest_paid": "₹15,813.64"
+                    },
+                    {
+                        "tenure": "24 months",
+                        "emi": "₹14,619.12",
+                        "total_payable": "₹430,858.88",
+                        "interest_paid": "₹30,858.88"
+                    },
+                    {
+                        "tenure": "36 months",
+                        "emi": "₹10,175.91",
+                        "total_payable": "₹446,332.76",
+                        "interest_paid": "₹46,332.76"
+                    },
+                    {
+                        "tenure": "48 months",
+                        "emi": "₹7,963.21",
+                        "total_payable": "₹462,234.08",
+                        "interest_paid": "₹62,234.08"
+                    }
+                ]
+            },
+            "downpayment_impact_analysis": {
+                "interest_rate": "9.0%",
+                "recommended_tenure_for_analysis": "48 months",
+                "scenarios": [
+                    {
+                        "downpayment_percent": "0%",
+                        "downpayment_amount": "₹0.00",
+                        "loan_amount": "₹400,000.00",
+                        "monthly_emi": "₹9,948.17",
+                        "total_cost": "₹478,475.16"
+                    },
+                    {
+                        "downpayment_percent": "10%",
+                        "downpayment_amount": "₹40,000.00",
+                        "loan_amount": "₹360,000.00",
+                        "monthly_emi": "₹8,953.35",
+                        "total_cost": "₹450,618.04"
+                    },
+                    {
+                        "downpayment_percent": "20%",
+                        "downpayment_amount": "₹80,000.00",
+                        "loan_amount": "₹320,000.00",
+                        "monthly_emi": "₹7,963.21",
+                        "total_cost": "₹462,234.08"
+                    }
+                ]
+            },
+            "your_affordability_profile": {
+                "average_monthly_income": "₹65,677",
+                "affordability_threshold": "30.0% of income"
+            },
+            "recommended_plan": {
+                "tenure": "48 months",
+                "emi": "₹7,963.21",
+                "emi_percentage_of_income": "12.1%",
+                "comfort_level": "Very comfortable",
+                "reason": "Leveraging flexible tenure options from SBI for lower monthly payments"
+            }
+        }
+    },
+    {
+        "query": "Loan options for Datsun redi-GO",
+        "bank": "HDFC Bank",
+        "response_format": {
+            "product_confirmation": {
+                "product": "Datsun redi-GO",
+                "current_price": "₹400,000",
+                "specifications": "Car - Low tier"
+            },
+            "selected_bank_option": {
+                "bank": "HDFC Bank",
+                "interest_rate": "9.0% p.a.",
+                "pros": [
+                    "Quick approval",
+                    "Online application",
+                    "Competitive rates"
+                ],
+                "cons": [
+                    "Higher interest for bad credit"
+                ]
+            },
+            "emi_calculation_results": {
+                "product_price": "₹400,000",
+                "downpayment_percent": "20%",
+                "downpayment_amount": "₹80,000",
+                "loan_amount": "₹320,000",
+                "interest_rate": "9.0% per annum",
+                "emi_options": [
+                    {
+                        "tenure": "6 months",
+                        "emi": "₹54,742.05",
+                        "total_payable": "₹408,452.30",
+                        "interest_paid": "₹8,452.30"
+                    },
+                    {
+                        "tenure": "12 months",
+                        "emi": "₹27,984.47",
+                        "total_payable": "₹415,813.64",
+                        "interest_paid": "₹15,813.64"
+                    },
+                    {
+                        "tenure": "24 months",
+                        "emi": "₹14,619.12",
+                        "total_payable": "₹430,858.88",
+                        "interest_paid": "₹30,858.88"
+                    },
+                    {
+                        "tenure": "36 months",
+                        "emi": "₹10,175.91",
+                        "total_payable": "₹446,332.76",
+                        "interest_paid": "₹46,332.76"
+                    },
+                    {
+                        "tenure": "48 months",
+                        "emi": "₹7,963.21",
+                        "total_payable": "₹462,234.08",
+                        "interest_paid": "₹62,234.08"
+                    }
+                ]
+            },
+            "downpayment_impact_analysis": {
+                "interest_rate": "9.0%",
+                "recommended_tenure_for_analysis": "36 months",
+                "scenarios": [
+                    {
+                        "downpayment_percent": "0%",
+                        "downpayment_amount": "₹0.00",
+                        "loan_amount": "₹400,000.00",
+                        "monthly_emi": "₹12,991.76",
+                        "total_cost": "₹467,703.36"
+                    },
+                    {
+                        "downpayment_percent": "10%",
+                        "downpayment_amount": "₹40,000.00",
+                        "loan_amount": "₹360,000.00",
+                        "monthly_emi": "₹11,692.58",
+                        "total_cost": "₹441,372.88"
+                    },
+                    {
+                        "downpayment_percent": "20%",
+                        "downpayment_amount": "₹80,000.00",
+                        "loan_amount": "₹320,000.00",
+                        "monthly_emi": "₹10,175.91",
+                        "total_cost": "₹446,332.76"
+                    }
+                ]
+            },
+            "your_affordability_profile": {
+                "average_monthly_income": "₹65,677",
+                "affordability_threshold": "30.0% of income"
+            },
+            "recommended_plan": {
+                "tenure": "36 months",
+                "emi": "₹10,175.91",
+                "emi_percentage_of_income": "15.5%",
+                "comfort_level": "Very comfortable",
+                "reason": "Utilizing HDFC's quick approval process for faster financing"
+            }
+        }
+    },
+    {
+        "query": "Loan options for Datsun redi-GO",
+        "bank": "ICICI Bank",
+        "response_format": {
+            "product_confirmation": {
+                "product": "Datsun redi-GO",
+                "current_price": "₹400,000",
+                "specifications": "Car - Low tier"
+            },
+            "selected_bank_option": {
+                "bank": "ICICI Bank",
+                "interest_rate": "9.0% p.a.",
+                "pros": [
+                    "Fast disbursement",
+                    "Low processing fees",
+                    "Good customer service"
+                ],
+                "cons": [
+                    "Strict eligibility criteria"
+                ]
+            },
+            "emi_calculation_results": {
+                "product_price": "₹400,000",
+                "downpayment_percent": "20%",
+                "downpayment_amount": "₹80,000",
+                "loan_amount": "₹320,000",
+                "interest_rate": "9.0% per annum",
+                "emi_options": [
+                    {
+                        "tenure": "6 months",
+                        "emi": "₹54,742.05",
+                        "total_payable": "₹408,452.30",
+                        "interest_paid": "₹8,452.30"
+                    },
+                    {
+                        "tenure": "12 months",
+                        "emi": "₹27,984.47",
+                        "total_payable": "₹415,813.64",
+                        "interest_paid": "₹15,813.64"
+                    },
+                    {
+                        "tenure": "24 months",
+                        "emi": "₹14,619.12",
+                        "total_payable": "₹430,858.88",
+                        "interest_paid": "₹30,858.88"
+                    },
+                    {
+                        "tenure": "36 months",
+                        "emi": "₹10,175.91",
+                        "total_payable": "₹446,332.76",
+                        "interest_paid": "₹46,332.76"
+                    },
+                    {
+                        "tenure": "48 months",
+                        "emi": "₹7,963.21",
+                        "total_payable": "₹462,234.08",
+                        "interest_paid": "₹62,234.08"
+                    }
+                ]
+            },
+            "downpayment_impact_analysis": {
+                "interest_rate": "9.0%",
+                "recommended_tenure_for_analysis": "36 months",
+                "scenarios": [
+                    {
+                        "downpayment_percent": "0%",
+                        "downpayment_amount": "₹0.00",
+                        "loan_amount": "₹400,000.00",
+                        "monthly_emi": "₹12,991.76",
+                        "total_cost": "₹467,703.36"
+                    },
+                    {
+                        "downpayment_percent": "10%",
+                        "downpayment_amount": "₹40,000.00",
+                        "loan_amount": "₹360,000.00",
+                        "monthly_emi": "₹11,692.58",
+                        "total_cost": "₹441,372.88"
+                    },
+                    {
+                        "downpayment_percent": "20%",
+                        "downpayment_amount": "₹80,000.00",
+                        "loan_amount": "₹320,000.00",
+                        "monthly_emi": "₹10,175.91",
+                        "total_cost": "₹446,332.76"
+                    }
+                ]
+            },
+            "your_affordability_profile": {
+                "average_monthly_income": "₹65,677",
+                "affordability_threshold": "30.0% of income"
+            },
+            "recommended_plan": {
+                "tenure": "36 months",
+                "emi": "₹10,175.91",
+                "emi_percentage_of_income": "15.5%",
+                "comfort_level": "Very comfortable",
+                "reason": "Benefiting from ICICI's low processing fees and fast disbursement"
+            }
+        }
+    },
+    {
+        "query": "Loan options for Datsun redi-GO",
+        "bank": "Axis Bank",
+        "response_format": {
+            "product_confirmation": {
+                "product": "Datsun redi-GO",
+                "current_price": "₹400,000",
+                "specifications": "Car - Low tier"
+            },
+            "selected_bank_option": {
+                "bank": "Axis Bank",
+                "interest_rate": "9.0% p.a.",
+                "pros": [
+                    "Balanced rates",
+                    "Good rewards program",
+                    "Online banking"
+                ],
+                "cons": [
+                    "Average processing time"
+                ]
+            },
+            "emi_calculation_results": {
+                "product_price": "₹400,000",
+                "downpayment_percent": "20%",
+                "downpayment_amount": "₹80,000",
+                "loan_amount": "₹320,000",
+                "interest_rate": "9.0% per annum",
+                "emi_options": [
+                    {
+                        "tenure": "6 months",
+                        "emi": "₹54,742.05",
+                        "total_payable": "₹408,452.30",
+                        "interest_paid": "₹8,452.30"
+                    },
+                    {
+                        "tenure": "12 months",
+                        "emi": "₹27,984.47",
+                        "total_payable": "₹415,813.64",
+                        "interest_paid": "₹15,813.64"
+                    },
+                    {
+                        "tenure": "24 months",
+                        "emi": "₹14,619.12",
+                        "total_payable": "₹430,858.88",
+                        "interest_paid": "₹30,858.88"
+                    },
+                    {
+                        "tenure": "36 months",
+                        "emi": "₹10,175.91",
+                        "total_payable": "₹446,332.76",
+                        "interest_paid": "₹46,332.76"
+                    },
+                    {
+                        "tenure": "48 months",
+                        "emi": "₹7,963.21",
+                        "total_payable": "₹462,234.08",
+                        "interest_paid": "₹62,234.08"
+                    }
+                ]
+            },
+            "downpayment_impact_analysis": {
+                "interest_rate": "9.0%",
+                "recommended_tenure_for_analysis": "24 months",
+                "scenarios": [
+                    {
+                        "downpayment_percent": "0%",
+                        "downpayment_amount": "₹0.00",
+                        "loan_amount": "₹400,000.00",
+                        "monthly_emi": "₹18,273.90",
+                        "total_cost": "₹438,573.60"
+                    },
+                    {
+                        "downpayment_percent": "10%",
+                        "downpayment_amount": "₹40,000.00",
+                        "loan_amount": "₹360,000.00",
+                        "monthly_emi": "₹16,446.51",
+                        "total_cost": "₹434,716.24"
+                    },
+                    {
+                        "downpayment_percent": "20%",
+                        "downpayment_amount": "₹80,000.00",
+                        "loan_amount": "₹320,000.00",
+                        "monthly_emi": "₹14,619.12",
+                        "total_cost": "₹430,858.88"
+                    }
+                ]
+            },
+            "your_affordability_profile": {
+                "average_monthly_income": "₹65,677",
+                "affordability_threshold": "30.0% of income"
+            },
+            "recommended_plan": {
+                "tenure": "24 months",
+                "emi": "₹14,619.12",
+                "emi_percentage_of_income": "22.3%",
+                "comfort_level": "Very comfortable",
+                "reason": "Choosing balanced option with good rewards from Axis Bank"
+            }
+        }
+    },
+    {
+        "query": "Loan options for Datsun redi-GO",
+        "bank": "Kotak Mahindra Bank",
+        "response_format": {
+            "product_confirmation": {
+                "product": "Datsun redi-GO",
+                "current_price": "₹400,000",
+                "specifications": "Car - Low tier"
+            },
+            "selected_bank_option": {
+                "bank": "Kotak Mahindra Bank",
+                "interest_rate": "9.0% p.a.",
+                "pros": [
+                    "Digital first bank",
+                    "Minimal documentation",
+                    "Flexible EMIs"
+                ],
+                "cons": [
+                    "Limited branches",
+                    "Variable rates"
+                ]
+            },
+            "emi_calculation_results": {
+                "product_price": "₹400,000",
+                "downpayment_percent": "20%",
+                "downpayment_amount": "₹80,000",
+                "loan_amount": "₹320,000",
+                "interest_rate": "9.0% per annum",
+                "emi_options": [
+                    {
+                        "tenure": "6 months",
+                        "emi": "₹54,742.05",
+                        "total_payable": "₹408,452.30",
+                        "interest_paid": "₹8,452.30"
+                    },
+                    {
+                        "tenure": "12 months",
+                        "emi": "₹27,984.47",
+                        "total_payable": "₹415,813.64",
+                        "interest_paid": "₹15,813.64"
+                    },
+                    {
+                        "tenure": "24 months",
+                        "emi": "₹14,619.12",
+                        "total_payable": "₹430,858.88",
+                        "interest_paid": "₹30,858.88"
+                    },
+                    {
+                        "tenure": "36 months",
+                        "emi": "₹10,175.91",
+                        "total_payable": "₹446,332.76",
+                        "interest_paid": "₹46,332.76"
+                    },
+                    {
+                        "tenure": "48 months",
+                        "emi": "₹7,963.21",
+                        "total_payable": "₹462,234.08",
+                        "interest_paid": "₹62,234.08"
+                    }
+                ]
+            },
+            "downpayment_impact_analysis": {
+                "interest_rate": "9.0%",
+                "recommended_tenure_for_analysis": "48 months",
+                "scenarios": [
+                    {
+                        "downpayment_percent": "0%",
+                        "downpayment_amount": "₹0.00",
+                        "loan_amount": "₹400,000.00",
+                        "monthly_emi": "₹9,948.17",
+                        "total_cost": "₹478,475.16"
+                    },
+                    {
+                        "downpayment_percent": "10%",
+                        "downpayment_amount": "₹40,000.00",
+                        "loan_amount": "₹360,000.00",
+                        "monthly_emi": "₹8,953.35",
+                        "total_cost": "₹450,618.04"
+                    },
+                    {
+                        "downpayment_percent": "20%",
+                        "downpayment_amount": "₹80,000.00",
+                        "loan_amount": "₹320,000.00",
+                        "monthly_emi": "₹7,963.21",
+                        "total_cost": "₹462,234.08"
+                    }
+                ]
+            },
+            "your_affordability_profile": {
+                "average_monthly_income": "₹65,677",
+                "affordability_threshold": "30.0% of income"
+            },
+            "recommended_plan": {
+                "tenure": "48 months",
+                "emi": "₹7,963.21",
+                "emi_percentage_of_income": "12.1%",
+                "comfort_level": "Very comfortable",
+                "reason": "Emphasizing digital ease and flexible EMIs from Kotak Mahindra"
+            }
+        }
+    }
+]

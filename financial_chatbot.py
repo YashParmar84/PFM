@@ -445,9 +445,16 @@ class SpecializedFinancialChatbot:
                 response['show_greeting'] = True
                 return response
 
-        # Handle specific commands
+        # Handle specific commands (check for save plan commands first - take precedence over general saving inquiries)
         if 'save this plan' in message_lower:
-            response = self._handle_save_plan(message, user_context)
+            response = self._handle_save_plan(message, user_context, user)
+            response['message'] = f"{greeting}\n\n{response['message']}"
+            response['show_greeting'] = True
+            return response
+
+        # Check for save plan with number/pattern (must come before general saving check)
+        if re.search(r'save\s+plan\s+\d+', message_lower):
+            response = self._handle_save_plan(message, user_context, user)
             response['message'] = f"{greeting}\n\n{response['message']}"
             response['show_greeting'] = True
             return response
@@ -988,11 +995,37 @@ class SpecializedFinancialChatbot:
         return best_tenure
 
     def _handle_save_plan(self, message: str, user_context: Dict, user: User = None) -> Dict:
-        """Handle saving a financial plan"""
+        """Handle saving a financial plan - supports saving specific plans by number"""
         greeting = "Hello! How can I help you today?"
 
-        # Get current recommendation from context - try to extract from current product analysis
-        recommendation = None
+        message_lower = message.lower()
+
+        # Check for specific plan selection (e.g., "save plan 1", "save plan_1", etc.)
+        plan_selection_match = re.search(r'save\s+plan\s*(?:#|)(\w+)', message_lower)
+        selected_plan_number = None
+
+        if plan_selection_match:
+            try:
+                # Extract plan number (could be "1", "2", "_1", etc.)
+                plan_indicator = plan_selection_match.group(1)
+                # Clean up the indicator - remove underscore if present or convert to int
+                if plan_indicator.startswith('plan_'):
+                    plan_indicator = plan_indicator.replace('plan_', '')
+                selected_plan_number = int(plan_indicator)
+
+                # Validate plan number (1-5 is reasonable based on our plan generation)
+                if not (1 <= selected_plan_number <= 5):
+                    return {
+                        'message': f"{greeting}\nInvalid plan number. Please select plan 1-5.",
+                        'show_greeting': True
+                    }
+            except (ValueError, IndexError):
+                return {
+                    'message': f"{greeting}\nCould not understand plan number. Please say 'save plan X' where X is 1, 2, 3, etc.",
+                    'show_greeting': True
+                }
+
+        # Get current recommendation from context
         selected_product = user_context.get('selected_product')
         category = user_context.get('category')
 
@@ -1002,52 +1035,74 @@ class SpecializedFinancialChatbot:
         elif user_context.get('product_price'):
             product_price = user_context.get('product_price', 0)
         else:
-            # Try to get from item object if it's an object
             if selected_product and hasattr(selected_product, 'price'):
                 product_price = float(selected_product.price)
             else:
                 product_price = 0
 
-        if product_price > 0:
-            # Calculate EMI properly
-            best_emi = user_context.get('emi_breakdown', [])[:1] or [{'emi': 0, 'tenure': 24}]
-            loan_amount = product_price * 0.8  # Assume 20% downpayment
-            interest_rate = user_context.get('bank_options', [{}])[0].get('rate', self.fallback_rates.get(category, 13.0))
-
-            # Use existing EMI if available, or calculate it
-            emi_value = best_emi[0].get('emi', 0) if best_emi else 0
-            if emi_value <= 0:
-                # Calculate EMI
-                emi_value = self.calculate_emi(loan_amount, interest_rate, 24)  # Default 24 months
-
-            total_cost = emi_value * 24 + (product_price * 0.2)  # Downpayment + EMI*tenure
-
-            recommendation = {
-                'downpayment': 20.0,
-                'loan_amount': loan_amount,
-                'interest_rate': interest_rate,
-                'tenure': best_emi[0].get('tenure', 24) if best_emi else 24,
-                'emi': emi_value,
-                'total_cost': total_cost,
-            }
-
-        if not recommendation or product_price <= 0:
+        if product_price <= 0:
             return {
                 'message': f"{greeting}\nI don't have a current plan to save. Please discuss a product purchase first.",
                 'show_greeting': True
             }
 
+        # Get available bank options from context
+        bank_options = user_context.get('bank_options', [])
+        if not bank_options or len(bank_options) < 5:
+            # Fallback to default banks if not enough options
+            bank_options = [
+                {'name': 'State Bank of India', 'rate': 9.0},
+                {'name': 'HDFC Bank', 'rate': 9.25},
+                {'name': 'ICICI Bank', 'rate': 9.15},
+                {'name': 'Kotak Mahindra Bank', 'rate': 9.20},
+                {'name': 'Axis Bank', 'rate': 9.10}
+            ]
+
+        # Determine which plan to save
+        if selected_plan_number and selected_plan_number <= len(bank_options):
+            # Save specific plan by number
+            selected_bank = bank_options[selected_plan_number - 1]  # 0-indexed
+            plan_index = selected_plan_number - 1
+        else:
+            # Default to first plan if no specific plan selected or invalid number
+            selected_bank = bank_options[0]
+            plan_index = 0
+
+        # Calculate EMI for selected plan (48-month tenure)
+        downpayment_amount = product_price * 0.2
+        loan_amount = product_price * 0.8
+        emi_value = self.calculate_emi(loan_amount, selected_bank['rate'], 48)
+        total_payable = round(emi_value * 48 + downpayment_amount, 2)
+
+        # Create recommendation for saving
+        recommendation = {
+            'downpayment': 20.0,
+            'loan_amount': loan_amount,
+            'interest_rate': selected_bank['rate'],
+            'tenure': 48,
+            'emi': emi_value,
+            'total_cost': total_payable,
+        }
+
         # Save to database if user is provided
         if user:
             try:
-                # Find next plan ID for this user
-                existing_plans = SavedPlan.objects.filter(user=user).order_by('-plan_id')
-                if existing_plans:
-                    last_plan_id = existing_plans[0].plan_id
-                    # Extract number from "plan_X"
-                    try:
-                        plan_num = int(last_plan_id.split('_')[-1]) + 1
-                    except (ValueError, IndexError):
+                # Find next plan ID for this user by extracting the highest plan number
+                existing_plans = SavedPlan.objects.filter(user=user)
+                if existing_plans.exists():
+                    # Extract all plan numbers and find the max
+                    plan_numbers = []
+                    for plan in existing_plans:
+                        try:
+                            plan_num = int(plan.plan_id.split('_')[-1])
+                            plan_numbers.append(plan_num)
+                        except (ValueError, IndexError):
+                            continue
+
+                    if plan_numbers:
+                        # Set to next number after the highest existing number
+                        plan_num = max(plan_numbers) + 1
+                    else:
                         plan_num = 1
                 else:
                     plan_num = 1
@@ -1061,27 +1116,35 @@ class SpecializedFinancialChatbot:
                     price=Decimal(str(product_price)),
                     downpayment=Decimal(str(recommendation.get('downpayment', 20.0))),
                     loan_amount=Decimal(str(recommendation.get('loan_amount', 0))),
-                    interest_rate=Decimal(str(recommendation.get('interest_rate', 13.0))),
-                    tenure=recommendation.get('tenure', 24),
-                    emi=Decimal(str(recommendation.get('emi', 0))),
-                    total_paid=Decimal(str(recommendation.get('total_cost', product_price))),
-                    notes=f"Auto-saved plan for {user_context.get('selected_product', {}).get('name', 'product')}",
+                    interest_rate=Decimal(str(recommendation.get('interest_rate', selected_bank['rate']))),
+                    tenure=recommendation.get('tenure', 48),
+                    emi=Decimal(str(recommendation.get('emi', emi_value))),
+                    total_paid=Decimal(str(recommendation.get('total_cost', total_payable))),
+                    notes=f"Saved plan {selected_plan_number or 1}: {selected_bank['name']} - {selected_bank['rate']}% for {user_context.get('selected_product', {}).get('name', 'product')}",
                 )
 
+                # Determine plan description for response
+                if selected_plan_number:
+                    plan_desc = f"Plan {selected_plan_number} ({selected_bank['name']} - {selected_bank['rate']}%)"
+                else:
+                    plan_desc = f"Plan 1 ({selected_bank['name']} - {selected_bank['rate']}%)"
+
                 return {
-                    'message': f"{greeting}\nPlan saved successfully!\n\n**Saved Plan #{plan_id}**\n• Product: {user_context.get('selected_product', {}).get('name', 'Unknown')}\n• Monthly EMI: ₹{recommendation.get('emi', 0):,.0f}\n• Tenure: {recommendation.get('tenure', 24)} months\n• Total Cost: ₹{recommendation.get('total_cost', user_context.get('product_price', 0)):,.0f}\n\nSay 'show my saved plans' to view all saved plans.",
+                    'message': f"{greeting}\n✅ **{plan_desc} saved successfully!**\n\n**Saved Plan #{plan_id}**\n• Product: {user_context.get('selected_product', {}).get('name', 'Unknown')}\n• Bank: {selected_bank['name']}\n• Interest Rate: {selected_bank['rate']}%\n• Monthly EMI: ₹{emi_value:,.0f}\n• Tenure: 48 months\n• Total Cost: ₹{total_payable:,.0f}\n\nSay 'show my saved plans' to view all saved plans.",
                     'saved_plan': {
                         'plan_id': plan_id,
                         'product': user_context.get('selected_product', {}).get('name', 'Unknown'),
-                        'price': user_context.get('product_price', 0),
+                        'price': product_price,
+                        'bank': selected_bank['name'],
                         'downpayment': recommendation.get('downpayment', 20.0),
                         'loan_amount': recommendation.get('loan_amount', 0),
-                        'interest_rate': recommendation.get('interest_rate', 13.0),
-                        'tenure': recommendation.get('tenure', 24),
-                        'emi': recommendation.get('emi', 0),
-                        'total_paid': recommendation.get('total_cost', user_context.get('product_price', 0)),
+                        'interest_rate': recommendation.get('interest_rate', selected_bank['rate']),
+                        'tenure': recommendation.get('tenure', 48),
+                        'emi': recommendation.get('emi', emi_value),
+                        'total_paid': recommendation.get('total_cost', total_payable),
                         'created_at': datetime.now().isoformat(),
-                        'user_id': user.id if user else None
+                        'user_id': user.id if user else None,
+                        'selected_plan_number': selected_plan_number
                     },
                     'show_greeting': True
                 }
@@ -1089,25 +1152,29 @@ class SpecializedFinancialChatbot:
             except Exception as e:
                 print(f"Error saving plan to database: {e}")
                 return {
-                    'message': f"{greeting}\nERROR: Failed to save plan to database. Please try again.",
+                    'message': f"{greeting}\n❌ ERROR: Failed to save plan to database. Please try again.",
                     'show_greeting': True
                 }
         else:
             # Fallback to context saving if no user
             plan_id = f"plan_{len(user_context.get('saved_plans', [])) + 1}"
+            plan_desc = f"Plan {selected_plan_number or 1} ({selected_bank['name']} - {selected_bank['rate']}%)"
+
             saved_plan = {
                 'plan_id': plan_id,
                 'product': user_context.get('selected_product', {}).get('name', 'Unknown'),
-                'price': user_context.get('product_price', 0),
+                'price': product_price,
+                'bank': selected_bank['name'],
                 'downpayment': recommendation.get('downpayment', 20.0),
                 'loan_amount': recommendation.get('loan_amount', 0),
-                'interest_rate': recommendation.get('interest_rate', 13.0),
-                'tenure': recommendation.get('tenure', 24),
-                'emi': recommendation.get('emi', 0),
-                'total_paid': recommendation.get('total_cost', user_context.get('product_price', 0)),
-                'notes': f"Auto-saved plan for {user_context.get('selected_product', {}).get('name', 'product')}",
+                'interest_rate': recommendation.get('interest_rate', selected_bank['rate']),
+                'tenure': recommendation.get('tenure', 48),
+                'emi': recommendation.get('emi', emi_value),
+                'total_paid': recommendation.get('total_cost', total_payable),
+                'notes': f"Saved {plan_desc} for {user_context.get('selected_product', {}).get('name', 'product')}",
                 'created_at': datetime.now().isoformat(),
-                'user_id': user_context.get('user_id')
+                'user_id': user_context.get('user_id'),
+                'selected_plan_number': selected_plan_number
             }
 
             # Add to saved plans
@@ -1116,7 +1183,7 @@ class SpecializedFinancialChatbot:
             user_context['saved_plans'].append(saved_plan)
 
             return {
-                'message': f"{greeting}\nPlan saved successfully!\n\n**Saved Plan #{plan_id}**\n• Product: {saved_plan['product']}\n• Monthly EMI: ₹{saved_plan['emi']:,.0f}\n• Tenure: {saved_plan['tenure']} months\n• Total Cost: ₹{saved_plan['total_paid']:,.0f}\n\nSay 'show my saved plans' to view all saved plans.",
+                'message': f"{greeting}\n✅ **{plan_desc} saved successfully!**\n\n**Saved Plan #{plan_id}**\n• Product: {saved_plan['product']}\n• Bank: {selected_bank['name']}\n• Interest Rate: {selected_bank['rate']}%\n• Monthly EMI: ₹{saved_plan['emi']:,.0f}\n• Tenure: 48 months\n• Total Cost: ₹{saved_plan['total_paid']:,.0f}\n\nSay 'show my saved plans' to view all saved plans.",
                 'saved_plan': saved_plan,
                 'show_greeting': True
             }
@@ -1401,31 +1468,6 @@ class SpecializedFinancialChatbot:
 
         response = f"{greeting}\n\n"
 
-        # Product confirmation and details
-        response += f"**Product Confirmation: {product_name}**\n"
-        response += f"• Current Price: ₹{product_price:,.0f}\n"
-        response += f"• Specifications: {selected_product.get('specs', 'Standard features')}\n"
-        if 'variants' in selected_product:
-            variant_prices = []
-            base_price = product_price
-            for variant in selected_product['variants']:
-                if '128GB' in variant or '8GB' in variant or variant == 'i3S':
-                    variant_prices.append(f"{variant}: ₹{base_price:,.0f}")
-                elif '256GB' in variant or '16GB' in variant:
-                    variant_prices.append(f"{variant}: ₹{int(base_price * 1.15):,.0f}")
-                elif '512GB' in variant or '32GB' in variant:
-                    variant_prices.append(f"{variant}: ₹{int(base_price * 1.30):,.0f}")
-                else:
-                    variant_prices.append(f"{variant}: ₹{base_price:,.0f}")
-            response += f"• Available Variants & Prices: {', '.join(variant_prices)}\n"
-
-        # Check affordable price difference
-        if 'variants' in selected_product and len(selected_product['variants']) > 1:
-            price_diff = int(base_price * 1.3) - base_price
-            response += f"• Price difference between basic & premium variant: ₹{price_diff:,.0f}\n"
-
-        response += "\n"
-
         # Calculate average income (last 6 months)
         affordability_threshold = 30.0 if income else 30.0  # Default 30% rule
 
@@ -1477,84 +1519,40 @@ class SpecializedFinancialChatbot:
             banks_data = self._get_fallback_banks_and_rates(category)
             rate_source = "latest market rates"
 
-        # Present banking options with current rates and pros/cons
-        response += f"**Real-time EMI Interest Rate Options** ({rate_source})\n"
-        for bank in banks_data[:5]:  # Show up to 5 banks
-            response += f"• **{bank['name']}**: {bank['rate']}% p.a.\n"
-            response += f"  - Pros: {', '.join(bank.get('pros', ['Standard banking features']))}\n"
-            response += f"  - Cons: {', '.join(bank.get('cons', ['Standard terms apply']))}\n"
-        response += "\n"
+        # Initialize empty breakdown for return statement
+        emi_breakdown = []
+        dp_options = []
 
-        # Calculate EMI for standard tenures using best available rate (20% downpayment = 80% loan amount)
-        best_rate = banks_data[0]['rate']
-        tenures = [6, 12, 24, 36, 48]
+        # Generate simple plans for different banks and tenures
         downpayment_amount = product_price * 0.2
         loan_amount = product_price * 0.8
 
-        response += "**EMI Calculation Results (With 20% Downpayment)**\n"
-        response += f"Product Price: ₹{product_price:,.0f}\n"
-        response += f"Downpayment (20%): ₹{downpayment_amount:,.0f}\n"
-        response += f"Loan Amount (80%): ₹{loan_amount:,.0f}\n"
-        response += f"Best Available Rate: {best_rate}% per annum\n\n"
+        # Create plan variations for 48-month tenure across different banks
+        plans = []
+        for bank in banks_data[:5]:  # Show up to 5 banks
+            emi = self.calculate_emi(loan_amount, bank['rate'], 48)  # Fixed 48-month tenure
+            total_payable = round(emi * 48 + downpayment_amount, 2)
 
-        emi_breakdown = []
-        for tenure in tenures:
-            emi = self.calculate_emi(loan_amount, best_rate, tenure)
-            total_payable = round(emi * tenure + downpayment_amount, 2)
-            interest_paid = round(total_payable - product_price, 2)
-
+            # Add to emi_breakdown for saving functionality
             emi_breakdown.append({
-                'tenure': tenure,
+                'tenure': 48,
                 'emi': emi,
                 'total_payable': total_payable,
-                'interest_paid': interest_paid
+                'interest_paid': total_payable - product_price
             })
 
-            response += f"• **{tenure} months**: EMI ₹{emi:,.2f}\n"
-            response += f"  - Total payable: ₹{total_payable:,.2f}\n"
-            response += f"  - Interest paid: ₹{interest_paid:,.2f}\n\n"
+            plan = f"Plan {len(plans)+1}: {bank['name']} - {bank['rate']}%\n"
+            plan += f"Downpayment\t₹{downpayment_amount:,.0f}\n"
+            plan += f"Loan Amount\t₹{loan_amount:,.0f}\n"
+            plan += f"Tenure\t48 months\n"
+            plan += f"EMI\t\t₹{emi:.0f}\n"
+            plan += f"Interest Rate\t{bank['rate']}%\n"
+            plan += f"Total Payable\t₹{total_payable:,.0f}\n\n"
 
-        # Downpayment impact analysis (0%, 10%, 20%)
-        response += "**Downpayment Impact Analysis**\n"
-        response += f"Using {best_rate}% interest rate and recommended 24-month tenure:\n\n"
+            plans.append(plan)
 
-        dp_options = [0, 10, 20]
-        for dp_percent in dp_options:
-            dp_analysis = self.calculate_downpayment_impact(product_price, dp_percent)
-            effective_emi = self.calculate_emi(dp_analysis['loan_amount'], best_rate, 24)  # Fixed tenure for comparison
-            total_cost = round(effective_emi * 24 + dp_analysis['downpayment_amount'], 2)
-
-            response += f"• **{dp_percent}% Downpayment**:\n"
-            response += f"  - Downpayment: ₹{dp_analysis['downpayment_amount']:,.2f}\n"
-            response += f"  - Loan Amount: ₹{dp_analysis['loan_amount']:,.2f}\n"
-            response += f"  - Monthly EMI: ₹{effective_emi:,.2f}\n"
-            response += f"  - Total Cost: ₹{total_cost:,.2f}\n\n"
-
-        # Affordability conclusion with income data
-        if income:
-            response += f"**Your Affordability Profile**\n"
-            response += f"Average Monthly Income (6 months): ₹{income:,.0f}\n"
-            response += f"Affordability Threshold: {affordability_threshold}% of income (recommended limit)\n\n"
-
-            # Recommend best option based on affordability
-            best_emi = min(emi_breakdown, key=lambda x: x['emi'])
-            emi_ratio = (best_emi['emi'] / income) * 100
-
-            if emi_ratio <= affordability_threshold:
-                response += f"**Recommended Plan**\n"
-                response += f"• Tenure: {best_emi['tenure']} months\n"
-                response += f"• EMI: ₹{best_emi['emi']:,.2f} ({emi_ratio:.1f}% of income)\n"
-                response += f"• Comfort level: {'Very comfortable' if emi_ratio <= 20 else 'Manageable'}\n"
-            else:
-                response += f"**Outside Comfort Zone**\n"
-                response += f"• Lowest EMI: ₹{best_emi['emi']:,.2f} ({emi_ratio:.1f}% of income)\n"
-                response += f"• Requires careful budget planning\n"
-                response += f"• Consider saving up first or increasing downpayment\n"
-        else:
-            response += "**Note:** Income data not available - affordability analysis based on standard 30% rule.\n"
-            response += "For personalized recommendations, please ensure your income transactions are properly recorded.\n"
-
-        response += "\n**Say 'save this plan' if you'd like to store these recommendations for later.**"
+        response += "".join(plans)
+        response += "**Say 'save plan X' (e.g., 'save plan 1') to save a specific plan for later.**"
 
         return {
             'message': response,

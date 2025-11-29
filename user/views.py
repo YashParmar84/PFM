@@ -596,7 +596,7 @@ def generate_financial_plans_api(request):
         return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
 
 def generate_financial_plans(average_monthly_income, selected_item):
-    """Generate multiple financial plans for the selected item"""
+    """Generate multiple financial plans for the selected item with different banks and rates"""
     try:
         print("🔧 DEBUG: Starting generate_financial_plans")
         print(f"🔧 DEBUG: average_monthly_income type: {type(average_monthly_income)}, value: {average_monthly_income}")
@@ -613,14 +613,19 @@ def generate_financial_plans(average_monthly_income, selected_item):
             print(f"❌ DEBUG: Error converting product_price: {e}")
             return None
 
-        # Interest rates and tenures as lists
-        interest_rates = [12.5, 13.5, 14.5, 15.0]  # Different interest rates for different plans
-        tenures = [24, 36, 48, 60]  # Different tenure options
+        # Bank configurations with different interest rates
+        bank_options = [
+            {"bank": "State Bank of India (SBI)", "rate": 8.5, "tenure": 48},
+            {"bank": "HDFC Bank", "rate": 9.0, "tenure": 48},
+            {"bank": "ICICI Bank", "rate": 9.5, "tenure": 48},
+            {"bank": "Axis Bank", "rate": 8.75, "tenure": 48},
+            {"bank": "Kotak Mahindra Bank", "rate": 9.25, "tenure": 48}
+        ]
 
         plans = []
 
-        for i, (interest_rate, tenure) in enumerate(zip(interest_rates, tenures)):
-            print(f"🔧 DEBUG: Processing plan {i+1} - interest_rate: {interest_rate}, tenure: {tenure}")
+        for i, bank_config in enumerate(bank_options):
+            print(f"🔧 DEBUG: Processing plan {i+1} - bank: {bank_config['bank']}, rate: {bank_config['rate']}")
 
             try:
                 # Calculate down payment (assuming 20% down payment)
@@ -631,6 +636,8 @@ def generate_financial_plans(average_monthly_income, selected_item):
                 print(f"🔧 DEBUG: Plan {i+1} - product_price: {product_price}, down_payment: {down_payment}, loan_amount: {loan_amount}")
 
                 # Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)
+                interest_rate = bank_config['rate']
+                tenure = bank_config['tenure']
                 monthly_rate = interest_rate / (12.0 * 100.0)  # Monthly interest rate
                 emi_numerator = loan_amount * monthly_rate * (1.0 + monthly_rate)**tenure
                 emi_denominator = (1.0 + monthly_rate)**tenure - 1.0
@@ -656,9 +663,18 @@ def generate_financial_plans(average_monthly_income, selected_item):
                 avg_income_float = float(average_monthly_income)
                 affordability_score = 9.0 if remaining_salary > avg_income_float * 0.7 else 7.0 if remaining_salary > avg_income_float * 0.6 else 5.0
 
+                # Format plan using the new template format
+                plan_description = f"""Downpayment ₹{down_payment:,.0f}
+Loan Amount ₹{loan_amount:,.0f}
+Tenure {tenure} months
+EMI ₹{emi:.0f}
+Interest Rate {interest_rate}%
+Total Payable ₹{total_repayment:,.0f}"""
+
                 plan_data = {
                     "plan_id": f"plan_{i+1}",
-                    "name": f"Plan {i+1}: {'Standard' if i == 0 else 'Medium' if i == 1 else 'Extended' if i==2 else 'Long Term'} Term",
+                    "name": f"Plan {i+1}: {bank_config['bank']} - {interest_rate}%",
+                    "bank": bank_config['bank'],
                     "tenure_months": int(tenure),
                     "interest_rate": float(interest_rate),
                     "product_cost": float(product_price),
@@ -669,7 +685,8 @@ def generate_financial_plans(average_monthly_income, selected_item):
                     "total_repayment": float(total_repayment),
                     "remaining_salary": float(remaining_salary),
                     "total_interest": float(total_interest),
-                    "affordability_score": float(affordability_score)
+                    "affordability_score": float(affordability_score),
+                    "plan_description": plan_description
                 }
 
                 plans.append(plan_data)
