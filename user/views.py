@@ -2160,3 +2160,136 @@ def get_consultation_details(request, consultation_id):
         # Log the actual exception for debugging
         print(f"ERROR in get_consultation_details: {str(e)}")
         return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ai_financial_tips(request):
+    """
+    Generate and apply AI financial tips based on last month's spending.
+    """
+    from datetime import date
+    from calendar import monthrange
+    
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            suggestions = data.get('suggestions', [])
+            current_month = date.today().replace(day=1)
+            
+            applied_count = 0
+            for item in suggestions:
+                category = item.get('category')
+                # Use suggested_amount as priority, fallback to amount
+                amount_val = item.get('suggested_amount') or item.get('amount') or 0
+                amount = float(amount_val)
+                
+                if category and amount > 0:
+                    Budget.objects.update_or_create(
+                        user=request.user,
+                        category=category,
+                        month=current_month,
+                        defaults={'amount': amount}
+                    )
+                    applied_count += 1
+            
+            return JsonResponse({'success': True, 'message': f'Successfully applied {applied_count} budget recommendations.'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    # GET Request - Generate Tips
+    today = date.today()
+    first_day_current = today.replace(day=1)
+    
+    # Calculate Last Month
+    last_month_end = first_day_current - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    
+    # 1. Analyze Overspending
+    last_month_budgets = Budget.objects.filter(
+        user=request.user,
+        month=last_month_start
+    )
+    
+    overspent_categories = []
+    
+    for budget in last_month_budgets:
+        expenses = Transaction.objects.filter(
+            user=request.user,
+            transaction_type='expense',
+            category=budget.category,
+            date__range=[last_month_start, last_month_end]
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        if expenses > budget.amount:
+            overspend_diff = float(expenses) - float(budget.amount)
+            # Logic: New Budget = 50% of Last Month's Actual Spending (matches example: Budget 50k, Spent 70k -> New 35k)
+            new_budget = float(expenses) * 0.5
+            
+            overspent_categories.append({
+                'category': budget.category,
+                'category_display': budget.get_category_display(),
+                'last_budget': float(budget.amount),
+                'last_spent': float(expenses),
+                'overspend': round(overspend_diff, 2),
+                'suggested_amount': max(0, round(new_budget, 2))
+            })
+
+    response_data = {}
+
+    if overspent_categories:
+        response_data['type'] = 'overspending_detected'
+        response_data['categories'] = overspent_categories
+        response_data['message'] = "We noticed some overspending last month. To get back on track, we recommend adjusting your budgets."
+    else:
+        # 2. No Overspending - Proactive Tips
+        last_month_income = Transaction.objects.filter(
+            user=request.user,
+            transaction_type='income',
+            date__range=[last_month_start, last_month_end]
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        
+        last_month_income = float(last_month_income)
+        
+        if last_month_income > 0:
+            recommended_total_budget = last_month_income * 0.20
+            
+            top_categories = Transaction.objects.filter(
+                user=request.user,
+                transaction_type='expense',
+                date__range=[last_month_start, last_month_end]
+            ).values('category').annotate(total=Sum('amount')).order_by('-total')[:5]
+            
+            suggestions = []
+            category_mapping = dict(Transaction.CATEGORIES)
+            
+            if top_categories:
+                total_spent_top = sum(float(c['total']) for c in top_categories)
+                for cat in top_categories:
+                    weight = float(cat['total']) / total_spent_top if total_spent_top > 0 else 0
+                    suggested_amt = recommended_total_budget * weight
+                    suggestions.append({
+                        'category': cat['category'],
+                        'category_display': category_mapping.get(cat['category'], cat['category']),
+                        'suggested_amount': round(suggested_amt, 2)
+                    })
+            else:
+                defaults = ['food', 'transport', 'bills', 'shopping']
+                per_cat = recommended_total_budget / len(defaults)
+                for cat in defaults:
+                    suggestions.append({
+                        'category': cat,
+                        'category_display': category_mapping.get(cat, cat),
+                        'suggested_amount': round(per_cat, 2)
+                    })
+
+            response_data['type'] = 'proactive_tips'
+            response_data['total_income'] = last_month_income
+            response_data['recommended_total'] = round(recommended_total_budget, 2)
+            response_data['categories'] = suggestions
+            response_data['message'] = f"Great job! Based on your last month's income (₹{last_month_income:,.0f}), we recommend a conservative budget of ₹{recommended_total_budget:,.0f} (20%) for these categories."
+        else:
+             response_data['type'] = 'no_data'
+             response_data['message'] = "We don't have enough income data from last month to generate tips. Keep tracking your finances!"
+
+    return JsonResponse(response_data)

@@ -7,9 +7,22 @@
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1><i class="fas fa-brain me-2"></i>AI Financial Insights</h1>
-            <div class="alert alert-info mb-0">
-                <small>Average Monthly Income: <strong>₹{{ average_monthly_income|floatformat:2 }}</strong></small>
+            {% if profile_ready %}
+            <div>
+                {% comment %}
+                <button class="btn btn-warning me-2 shadow-sm fw-bold" onclick="showAITips()">
+                    <i class="fas fa-lightbulb me-2"></i> AI Tips
+                </button>
+                {% endcomment %}
+                <div class="alert alert-info d-inline-block mb-0 p-2 shadow-sm">
+                    <small>Avg. Income: <strong>₹{{ average_monthly_income|floatformat:0 }}</strong></small>
+                </div>
             </div>
+            {% else %}
+            <div class="alert alert-secondary mb-0">
+                <small>Profile Analysis Pending</small>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -1794,5 +1807,180 @@ function updatePlanSelectionUI(planData, showWarning = false) {
         max-height: 300px;
 }
 </style>
+{% comment %}
+<!-- AI Tips Modal -->
+<div class="modal fade" id="aiTipsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="fas fa-robot me-2"></i>AI Financial Tips</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="aiTipsLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2 text-muted">Analyzing your spending habits...</p>
+                </div>
+                
+                <div id="aiTipsContent" style="display: none;">
+                    <div class="alert alert-info" id="aiTipsMessage"></div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover">
+                            <thead class="table-light">
+                                <tr id="aiTipsHeaderRow">
+                                    <th>Category</th>
+                                    <th class="col-last-budget">Last Month Budget</th>
+                                    <th class="col-last-spent">Last Month Spent</th>
+                                    <th>Suggested Budget</th>
+                                </tr>
+                            </thead>
+                            <tbody id="aiTipsTableBody">
+                                <!-- Dynamic Rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="alert alert-warning small mb-0">
+                        <i class="fas fa-info-circle me-1"></i> 
+                        <span id="aiTipsNote">Click Apply to update all your budgets for this month.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-success" id="applyTipsBtn" onclick="applyAITips()">
+                    <i class="fas fa-check me-2"></i>Apply Budget
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+let currentTipsSuggestions = [];
+
+function showAITips() {
+    const modal = new bootstrap.Modal(document.getElementById('aiTipsModal'));
+    modal.show();
+    
+    document.getElementById('aiTipsLoading').style.display = 'block';
+    document.getElementById('aiTipsContent').style.display = 'none';
+    document.getElementById('applyTipsBtn').disabled = true;
+    
+    fetch('/user/api/ai-financial-tips/')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('aiTipsLoading').style.display = 'none';
+            document.getElementById('aiTipsContent').style.display = 'block';
+            
+            const messageEl = document.getElementById('aiTipsMessage');
+            const tbody = document.getElementById('aiTipsTableBody');
+            
+            tbody.innerHTML = '';
+            messageEl.textContent = data.message;
+            currentTipsSuggestions = data.categories || []; 
+            
+            const headerRow = document.getElementById('aiTipsHeaderRow');
+            const colBudgets = document.querySelectorAll('.col-last-budget');
+            const colSpents = document.querySelectorAll('.col-last-spent');
+            
+            if (data.type === 'overspending_detected') {
+                colBudgets.forEach(el => el.style.display = 'table-cell');
+                colSpents.forEach(el => el.style.display = 'table-cell');
+                
+                data.categories.forEach(cat => {
+                    const row = `
+                        <tr>
+                            <td>${cat.category_display}</td>
+                            <td>₹${cat.last_budget.toLocaleString()}</td>
+                            <td class="text-danger fw-bold">₹${cat.last_spent.toLocaleString()}</td>
+                            <td class="fw-bold text-success">₹${cat.suggested_amount.toLocaleString()}</td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } else if (data.type === 'proactive_tips') {
+                colBudgets.forEach(el => el.style.display = 'none');
+                colSpents.forEach(el => el.style.display = 'none');
+                
+                if (data.categories) {
+                    data.categories.forEach(cat => {
+                        const row = `
+                            <tr>
+                                <td>${cat.category_display}</td>
+                                <td class="fw-bold text-success">₹${cat.suggested_amount.toLocaleString()}</td>
+                            </tr>
+                        `;
+                        tbody.innerHTML += row;
+                    });
+                }
+            } else {
+                 tbody.innerHTML = '<tr><td colspan="4" class="text-center">No recommendations available at this time.</td></tr>';
+            }
+            
+            document.getElementById('applyTipsBtn').disabled = false;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('aiTipsLoading').style.display = 'none';
+            document.getElementById('aiTipsContent').innerHTML = '<div class="alert alert-danger">Error loading tips. Please try again later.</div>';
+        });
+}
+
+function applyAITips() {
+    const btn = document.getElementById('applyTipsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Applying...';
+    
+    fetch('/user/api/ai-financial-tips/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({ suggestions: currentTipsSuggestions })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            // Close modal
+            const modalEl = document.getElementById('aiTipsModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            modal.hide();
+        } else {
+            alert('Error: ' + data.error);
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Apply Budget';
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error applying tips');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Apply Budget';
+    });
+}
+</script>
+{% endcomment %}
+
 {% endif %}
 {% endblock %}

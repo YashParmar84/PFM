@@ -28,6 +28,7 @@
     </div>
 </div>
 
+{% comment %}
 <!-- Total Budget Usage Summary -->
 {% if budgets %}
 <div class="row mb-4">
@@ -143,6 +144,7 @@
     </div>
 </div>
 {% endif %}
+{% endcomment %}
 
 <!-- Budget Overview -->
 {% if budgets %}
@@ -365,13 +367,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
 
-    // Display current month and year
-    const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    document.getElementById('current-month-year').textContent =
-        `${monthNames[now.getMonth()]} ${year}`;
+
 
     const prefillData = {{ prefill_data|safe }};
     if (prefillData.category) {

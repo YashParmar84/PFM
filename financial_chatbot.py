@@ -57,7 +57,7 @@ class SpecializedFinancialChatbot:
             'gold_loan': ['gold loan', 'gold finance', 'gold jewelry', 'ornament'],
             'two_wheeler': ['bike', 'scooter', 'motorcycle', 'two wheeler', 'moped'],
             'four_wheeler': ['car', 'automobile', 'vehicle', 'suv', 'sedan'],
-            'electronics': ['laptop', 'phone', 'mobile', 'tv', 'computer', 'electronics', 'smartphone', 'tablet', 'ac', 'refrigerator'],
+            'electronics': ['laptop', 'phone', 'mobile', 'tv', 'computer', 'electronics', 'smartphone', 'tablet', 'ac', 'refrigerator', 'electronic items', 'gadgets', 'devices', 'camera', 'fridge'],
             'travel': ['vacation', 'holiday', 'trip', 'travel', 'tour'],
             'hospitality': ['hotel', 'resort', 'stays', 'accommodation', 'hospitality']
         }
@@ -1614,14 +1614,17 @@ class SpecializedFinancialChatbot:
         response = f"{greeting}\n\n"
 
         # Calculate average income (last 6 months)
-        affordability_threshold = 30.0 if income else 30.0  # Default 30% rule
+        affordability_threshold = 20.0  # STRICT 20% rule
 
         # Check if product is affordable before proceeding
         if income:
-            # Simulate EMI calculation for affordability check (assume 20% down, 24-month tenure)
+            # Simulate EMI calculation for affordability check
+            # Use 48 months (max tenure) to check if matches even the most lenient option
             loan_amount = product_price * 0.8
-            mock_rate = self.fallback_rates.get(category, 13.0)
-            affordable_emi = (loan_amount * mock_rate/100/12 * (1 + mock_rate/100/12)**24) / ((1 + mock_rate/100/12)**24 - 1)
+            mock_rate = self.fallback_rates.get(category, 12.0)
+            
+            # initial check with max tenure (48m) to see if product is at all viable
+            affordable_emi = self.calculate_emi(loan_amount, mock_rate, 48)
             emi_ratio = (affordable_emi / income) * 100
 
             if emi_ratio > affordability_threshold:
@@ -1669,32 +1672,55 @@ class SpecializedFinancialChatbot:
         dp_options = []
 
         # Generate simple plans for different banks and tenures
+        # Generate complete set of 10 plans (3x12m, 3x24m, 4x48m)
         downpayment_amount = product_price * 0.2
         loan_amount = product_price * 0.8
 
-        # Create plan variations for 48-month tenure across different banks
+        target_structure = [
+            (12, 3),  # 3 plans for 12 months
+            (24, 3),  # 3 plans for 24 months
+            (48, 4)   # 4 plans for 48 months
+        ]
+
         plans = []
-        for bank in banks_data[:5]:  # Show up to 5 banks
-            emi = self.calculate_emi(loan_amount, bank['rate'], 48)  # Fixed 48-month tenure
-            total_payable = round(emi * 48 + downpayment_amount, 2)
+        plan_counter = 1
+        available_banks = banks_data if banks_data else [{'name': 'Standard Bank', 'rate': 12.0}]
 
-            # Add to emi_breakdown for saving functionality
-            emi_breakdown.append({
-                'tenure': 48,
-                'emi': emi,
-                'total_payable': total_payable,
-                'interest_paid': total_payable - product_price
-            })
+        for tenure, count in target_structure:
+            for i in range(count):
+                # Cycle through banks
+                bank_idx = (i + (tenure // 12)) % len(available_banks)
+                bank = available_banks[bank_idx]
+                
+                emi = self.calculate_emi(loan_amount, bank['rate'], tenure)
+                
+                # FILTER: Strictly enforce 20% affordability rule
+                if income:
+                    ratio = (emi / income) * 100
+                    if ratio > 20.0:
+                        continue # Skip unaffordable plans
 
-            plan = f"Plan {len(plans)+1}: {bank['name']} - {bank['rate']}%\n"
-            plan += f"Downpayment\t₹{downpayment_amount:,.0f}\n"
-            plan += f"Loan Amount\t₹{loan_amount:,.0f}\n"
-            plan += f"Tenure\t48 months\n"
-            plan += f"EMI\t\t₹{emi:.0f}\n"
-            plan += f"Interest Rate\t{bank['rate']}%\n"
-            plan += f"Total Payable\t₹{total_payable:,.0f}\n\n"
+                total_payable = round(emi * tenure + downpayment_amount, 2)
 
-            plans.append(plan)
+                # Add to emi_breakdown
+                emi_breakdown.append({
+                    'tenure': tenure,
+                    'emi': emi,
+                    'total_payable': total_payable,
+                    'interest_paid': total_payable - product_price
+                })
+
+                plan = f"Plan {plan_counter}: {bank['name']} - {bank['rate']}%\n"
+                if category != 'personal_loan':
+                     plan += f"Downpayment\t₹{downpayment_amount:,.0f}\n"
+                plan += f"Loan Amount\t₹{loan_amount:,.0f}\n"
+                plan += f"Tenure\t\t{tenure} months\n"
+                plan += f"EMI\t\t₹{emi:.0f}\n"
+                plan += f"Interest Rate\t{bank['rate']}%\n"
+                plan += f"Total Payable\t₹{total_payable:,.0f}\n\n"
+
+                plans.append(plan)
+                plan_counter += 1
 
         response += "".join(plans)
         response += "**Say 'save plan X' (e.g., 'save plan 1') to save a specific plan for later.**"

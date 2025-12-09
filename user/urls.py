@@ -20,6 +20,7 @@ urlpatterns = [
     path('ai-chat-api/', views.ai_chat_api, name='ai_chat_api'),
     path('api/filtered-chart-data/', views.get_filtered_chart_data, name='filtered_chart_data'),
     path('api/comprehensive-chart-data/', views.get_comprehensive_chart_data, name='comprehensive_chart_data'),
+    path('api/ai-financial-tips/', views.ai_financial_tips, name='ai_financial_tips'),
 
     # Financial plan management endpoints - proper sequence
     path('api/create-consultation/', views.create_consultation, name='create_consultation'),
