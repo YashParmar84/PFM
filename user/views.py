@@ -11,6 +11,17 @@ from django.conf import settings
 from financial_chatbot import answer_financial_question, get_chatbot
 
 
+def is_user_profile_ready(user):
+    """Check if user has at least 6 months of transaction history"""
+    from datetime import date
+    from django.db.models import Min
+    
+    first_txn = Transaction.objects.filter(user=user).aggregate(first_date=Min('date'))['first_date']
+    if first_txn:
+        days_active = (date.today() - first_txn).days
+        return days_active >= 180
+    return False
+
 @login_required
 def ai_financial_insights(request):
     """View for AI Financial Insights page"""
@@ -57,11 +68,15 @@ def ai_financial_insights(request):
     # Get consultation history
     consultations = AIConsultation.objects.filter(user=request.user).order_by('-created_at')[:10]
     
+    # Check financial profile readiness
+    profile_ready = is_user_profile_ready(request.user)
+    
     context = {
         'average_monthly_income': average_monthly_income,
         'loan_products': loan_products,
         'consultations': consultations,
-        'monthly_income_data': json.dumps(monthly_income)
+        'monthly_income_data': json.dumps(monthly_income),
+        'profile_ready': profile_ready
     }
     
     return render(request, 'user/ai_financial_insights.html', context)
@@ -74,6 +89,14 @@ def ai_chat_api(request):
     """API endpoint for AI chat with financial insights"""
     try:
         data = json.loads(request.body)
+        
+        # Check profile readiness
+        if not is_user_profile_ready(request.user):
+            return JsonResponse({
+                'error': 'Financial profile not ready.',
+                'reply': 'I cannot provide insights until you have at least 6 months of financial history. Please add more transaction data.'
+            }, status=403)
+            
         user_message = data.get('message', '').strip()
         selected_item_id = data.get('selected_item_id')
 
@@ -330,12 +353,17 @@ def create_consultation(request):
     """API endpoint to create a new consultation record"""
     try:
         data = json.loads(request.body)
-        selected_item_id = data.get('selected_item_id')
+        
+        # Check profile readiness
+        if not is_user_profile_ready(request.user):
+            return JsonResponse({'error': 'Financial profile not ready. At least 6 months of history required.'}, status=403)
 
+        selected_item_id = data.get('selected_item_id')
+        
         if not selected_item_id:
             print(f"DEBUG: Missing selected_item_id in request data: {data}")
             return JsonResponse({'error': 'Selected item ID is required'}, status=400)
-
+            
         print(f"DEBUG: Creating consultation for selected_item_id: {selected_item_id}")
 
         # Get or create the loan product
@@ -465,6 +493,10 @@ def create_consultation(request):
 def generate_financial_plans_api(request):
     """API endpoint to generate financial plans for an existing consultation"""
     try:
+        # Check profile readiness
+        if not is_user_profile_ready(request.user):
+            return JsonResponse({'error': 'Financial profile not ready. At least 6 months of history required.'}, status=403)
+
         data = json.loads(request.body)
         consultation_id = data.get('consultation_id')
 
