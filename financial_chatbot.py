@@ -659,7 +659,7 @@ class SpecializedFinancialChatbot:
             for idx, p in enumerate(plans, start=1):
                 total_payable = p['emi'] * p['tenure']
                 lines.append(f"Plan {idx}: {p['bank']} - {p['rate']:.2f}%")
-                lines.append(f"Downpayment     \t ₹0")
+                # lines.append(f"Downpayment     \t ₹0")
                 lines.append(f"Loan Amount     \t ₹{p['amount']:,.0f}")
                 lines.append(f"Tenure          \t {p['tenure']} months")
                 lines.append(f"EMI             \t ₹{p['emi']:,.0f}")

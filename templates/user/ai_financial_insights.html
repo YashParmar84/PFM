@@ -244,8 +244,8 @@
                                 <th>Item</th>
                                 <th>Bank</th>
                                 <th>EMI</th>
-                                <th>Status</th>
-                                <th>Affordability Score</th>
+
+
                                 <th>Date</th>
                                 <th>Actions</th>
                             </tr>
@@ -280,20 +280,8 @@
                                     <br><small class="text-primary">Selected: ₹{{ consultation.selected_plan.emi|floatformat:0 }}</small>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if consultation.activated_plan %}
-                                    <span class="badge bg-success"><i class="fas fa-check"></i> Activated</span>
-                                    {% elif consultation.selected_plan %}
-                                    <span class="badge bg-primary"><i class="fas fa-clock"></i> Selected</span>
-                                    {% else %}
-                                    <span class="badge bg-secondary">Pending</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <span class="badge {% if consultation.affordability_score >= 7 %}bg-success{% elif consultation.affordability_score >= 5 %}bg-warning{% else %}bg-danger{% endif %}">
-                                        {{ consultation.affordability_score }}/10
-                                    </span>
-                                </td>
+
+
                                 <td>{{ consultation.created_at|date:"M d, Y" }}</td>
                                 <td>
                                     <div class="btn-group" role="group">
@@ -1010,10 +998,11 @@ function displayFinancialPlans(plans) {
                             <small class="text-muted">Product Cost:</small><br>
                             <strong>₹${plan.product_cost.toLocaleString('en-IN')}</strong>
                         </div>
+                        ${plan.down_payment > 0 ? `
                         <div class="col-6">
                             <small class="text-muted">Down Payment:</small><br>
                             <strong>₹${plan.down_payment.toLocaleString('en-IN')}</strong>
-                        </div>
+                        </div>` : ''}
                     </div>
                     <div class="row text-small mt-2">
                         <div class="col-4">

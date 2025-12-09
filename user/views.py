@@ -700,9 +700,10 @@ def generate_financial_plans(average_monthly_income, selected_item, custom_overr
             p1_tenure = int(custom_overrides.get('tenure') or p1_tenure)
             p1_emi = float(custom_overrides.get('emi') or p1_emi)
             
-        # Re-verify/calculate Plan 1 details to ensure consistency
-        # Assuming 20% down payment as standard unless override exists (we don't pass dp override yet)
-        down_payment_percent = 20.0
+        # Determine down payment based on category
+        is_personal_loan = selected_item.category == 'personal_loan'
+        down_payment_percent = 0.0 if is_personal_loan else 20.0
+        
         down_payment = product_price * (down_payment_percent / 100.0)
         loan_amount = product_price - down_payment
         
@@ -717,12 +718,19 @@ def generate_financial_plans(average_monthly_income, selected_item, custom_overr
         
         affordability_score = 9.0 if p1_emi <= max_affordable_emi else 5.0 # Basic check
         
-        plan1_description = f"""Downpayment ₹{down_payment:,.0f}
-Loan Amount ₹{loan_amount:,.0f}
-Tenure {p1_tenure} months
-EMI ₹{p1_emi:.0f}
-Interest Rate {p1_rate}%
-Total Payable ₹{total_repayment:,.0f}"""
+        # Build description conditionally
+        plan1_description_parts = []
+        if not is_personal_loan:
+             plan1_description_parts.append(f"Downpayment ₹{down_payment:,.0f}")
+        
+        plan1_description_parts.extend([
+            f"Loan Amount ₹{loan_amount:,.0f}",
+            f"Tenure {p1_tenure} months",
+            f"EMI ₹{p1_emi:.0f}",
+            f"Interest Rate {p1_rate}%",
+            f"Total Payable ₹{total_repayment:,.0f}"
+        ])
+        plan1_description = "\n".join(plan1_description_parts)
 
         plan_data_1 = {
             "plan_id": f"plan_{plan_counter}",
@@ -781,7 +789,8 @@ Total Payable ₹{total_repayment:,.0f}"""
                 adjusted_rate = base_rate + (0.5 if tenure > 24 else 0)
                 
                 try:
-                    # Calculate down payment (20% down payment)
+                    # Calculate down payment
+                    # Use 0% for personal loans, 20% for others for generated plans too
                     down_payment = product_price * (down_payment_percent / 100.0)
                     loan_amount = product_price - down_payment
 
@@ -807,12 +816,19 @@ Total Payable ₹{total_repayment:,.0f}"""
                     
                     affordability_score = 9.0
 
-                    plan_description = f"""Downpayment ₹{down_payment:,.0f}
-Loan Amount ₹{loan_amount:,.0f}
-Tenure {tenure} months
-EMI ₹{emi:.0f}
-Interest Rate {adjusted_rate}%
-Total Payable ₹{total_repayment:,.0f}"""
+                    # Build description conditionally
+                    plan_desc_parts = []
+                    if not is_personal_loan:
+                         plan_desc_parts.append(f"Downpayment ₹{down_payment:,.0f}")
+                    
+                    plan_desc_parts.extend([
+                        f"Loan Amount ₹{loan_amount:,.0f}",
+                        f"Tenure {tenure} months",
+                        f"EMI ₹{emi:.0f}",
+                        f"Interest Rate {adjusted_rate}%",
+                        f"Total Payable ₹{total_repayment:,.0f}"
+                    ])
+                    plan_description = "\n".join(plan_desc_parts)
 
                     plan_data = {
                         "plan_id": f"plan_{plan_counter}",
@@ -986,7 +1002,9 @@ def generate_ai_response(user_message, average_monthly_income, selected_item, mo
                             "content": (
                                 "You are a helpful financial planning AI assistant. Provide clear, structured, personalized financial recommendations. "
                                 "If asked about financial planning or affordability, provide direct advice. If asked about specific products, "
-                                "give detailed analysis based on the user's financial situation."
+                                "give detailed analysis based on the user's financial situation. "
+                                "IMPORTANT: For Personal Loan recommendations, DO NOT include 'Downpayment' or 'Down payment' lines in your response, as it is zero. "
+                                "For other loans, include it if applicable."
                             )
                         },
                         {
