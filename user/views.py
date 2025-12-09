@@ -1227,8 +1227,34 @@ def add_transaction(request):
 def transaction_list(request):
     """Transaction list view"""
     today = datetime.now().date()
-    transactions = Transaction.objects.filter(user=request.user, date__lte=today).order_by('-date')
-    return render(request, 'user/transaction_list.html', {'transactions': transactions})
+
+    filter_month_str = request.GET.get('filter_month')
+    if filter_month_str:
+        try:
+            selected_month = datetime.strptime(filter_month_str, '%Y-%m').date().replace(day=1)
+        except (ValueError, TypeError):
+            selected_month = today.replace(day=1)
+    else:
+        selected_month = today.replace(day=1)
+
+    qs = Transaction.objects.filter(user=request.user)
+
+    qs = qs.filter(date__year=selected_month.year, date__month=selected_month.month, date__lte=today)
+
+    tx_type = request.GET.get('type')
+    if tx_type in {'income', 'expense'}:
+        qs = qs.filter(transaction_type=tx_type)
+
+    category = request.GET.get('category')
+    if category:
+        qs = qs.filter(category=category)
+
+    transactions = qs.order_by('-date')
+
+    return render(request, 'user/transaction_list.html', {
+        'transactions': transactions,
+        'selected_month': selected_month,
+    })
 
 
 @login_required
@@ -1322,8 +1348,16 @@ def budget_management(request):
 
 def get_budget_context(request):
     """Helper function to get budget context data with enriched budget info for both overview and table"""
-    # Get all budgets for the user (recent ones for overview cards, all for table)
-    budgets = Budget.objects.filter(user=request.user).order_by('-month', '-pk')
+    selected_month_str = request.GET.get('filter_month')
+    if selected_month_str:
+        try:
+            selected_month = datetime.strptime(selected_month_str, '%Y-%m').date().replace(day=1)
+        except (ValueError, TypeError):
+            selected_month = datetime.now().date().replace(day=1)
+    else:
+        selected_month = datetime.now().date().replace(day=1)
+
+    budgets = Budget.objects.filter(user=request.user, month=selected_month).order_by('-month', '-pk')
 
     # Create enriched budget data for the overview section (show recent budgets as cards)
     enriched_budgets = []
@@ -1400,7 +1434,7 @@ def get_budget_context(request):
         prefill_data = {}
 
     context = {
-        'budgets': enriched_budgets,  # For both overview cards and table
+        'budgets': enriched_budgets,
         'raw_budgets': budgets,
         'prefill_data': prefill_data,
         'categories': Transaction.CATEGORIES,
@@ -1411,6 +1445,7 @@ def get_budget_context(request):
         'over_budget_count': over_budget_count,
         'budget_count': len(enriched_budgets),
         'available_for_budget': (total_budgeted - total_spent) if total_budgeted > 0 else 0,
+        'selected_month': selected_month,
     }
 
     return context

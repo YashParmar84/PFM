@@ -9,7 +9,22 @@
             <i class="fas fa-chart-pie"></i> Budget Management
         </h1>
 
-        
+        <form method="get" class="row g-3 align-items-end mb-3">
+            <div class="col-md-4">
+                <label for="filter_month" class="form-label">View Month</label>
+                <input type="month" class="form-control" id="filter_month" name="filter_month" value="{{ selected_month|date:'Y-m' }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-secondary w-100">
+                    <i class="fas fa-filter"></i> Filter
+                </button>
+            </div>
+            <div class="col-md-6">
+                <div class="alert alert-light mb-0" role="alert">
+                    Viewing budgets for {{ selected_month|date:'F Y' }}
+                </div>
+            </div>
+        </form>
     </div>
 </div>
 
