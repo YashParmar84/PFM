@@ -10,7 +10,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             # Read the Excel file
-            excel_file = 'complete_loan_product_dataset.xlsx'
+            excel_file = 'final_emis_corrected.xlsx'
             
             # Read all relevant sheets
             sample_emis_df = pd.read_excel(excel_file, sheet_name='sample_emis')

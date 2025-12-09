@@ -541,11 +541,10 @@ function applyFilters() {
             return false;
         }
 
-        // AFFORDABILITY FILTERING: Only filter for affordability in categories OTHER than home_loan and gold_loan
-        const affordableCategories = ['four_wheeler', 'two_wheeler', 'electronics', 'personal_loan', 'travel', 'hospitality'];
-        if (affordableCategories.includes(product.category) && userIncome > 0) {
-            // Calculate if product is affordable (EMI should not exceed 30% of income)
-            // Using standard loan assumptions: 20% down payment, 24-month tenure, standard interest rates
+        // AFFORDABILITY FILTERING: Strict 20% Rule for ALL categories
+        if (userIncome > 0) {
+            // Calculate standardized EMI for comparison
+            // Assumptions: 20% down payment, 24-month tenure
             const downPaymentPercent = 20;
             const loanAmount = product.price * (1 - downPaymentPercent/100);
 
@@ -555,24 +554,31 @@ function applyFilters() {
                 'two_wheeler': 11.8,
                 'electronics': 14.5,
                 'personal_loan': 13.2,
+                'home_loan': 10.5,
+                'gold_loan': 9.5,
                 'travel': 12.0,
                 'hospitality': 12.0
             };
             const interestRate = categoryRates[product.category] || 13.0;
 
-            // Calculate EMI using standard formula
+            // Calculate EMI using standard formula with PRODUCT SPECIFIC TENURE
+            // This ensures we check affordability based on the product's actual loan term (e.g. 84 months for cars)
             const monthlyRate = interestRate / (12 * 100);
-            const tenureMonths = 24; // Standard tenure for comparison
-            const emi = loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths) /
+            const tenureMonths = product.tenure_months || 24; // Use product tenure or default to 24
+            const calculatedEmi = loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenureMonths) /
                        (Math.pow(1 + monthlyRate, tenureMonths) - 1);
-
-            // Check if EMI is within affordable range (30% of income)
-            const maxAffordableEMI = userIncome * 0.30;
-            if (emi > maxAffordableEMI) {
-                return false; // Product is not affordable
+            
+            // Limit: EMI must not exceed 20% of monthly income
+            const maxAffordableEMI = userIncome * 0.20;
+            
+            if (calculatedEmi > maxAffordableEMI) {
+                return false; // Product is strictly not affordable
             }
+            
+            // Update the product's EMI to reflect the calculation used for validation
+            product.emi = calculatedEmi;
+            // product.tenure_months is already set correctly
         }
-        // For home_loan and gold_loan categories, show all products regardless of affordability
 
         // Price range filter
         if (priceRangeFilter) {
@@ -586,7 +592,7 @@ function applyFilters() {
             return false;
         }
 
-        // EMI range filter
+        // EMI range filter - check against the NEW calculated emi
         if (emiRangeFilter) {
             if (!isEMIInRange(product.emi, emiRangeFilter)) {
                 return false;
@@ -705,7 +711,10 @@ document.addEventListener('click', function(e) {
             id: card.dataset.productId,
             name: card.dataset.productName,
             price: parseFloat(card.dataset.productPrice),
-            emi: parseFloat(card.dataset.productEmi)
+            emi: parseFloat(card.dataset.productEmi),
+            bank: card.dataset.productBank,
+            rate: parseFloat(card.dataset.productRate),
+            tenure: parseInt(card.dataset.productTenure)
         };
         
         // Update UI
@@ -874,7 +883,11 @@ function generatePlans() {
     console.log('📤 Step 1: Creating consultation for selected_item_id:', selectedProduct.id);
 
     const consultationData = {
-        selected_item_id: selectedProduct.id
+        selected_item_id: selectedProduct.id,
+        custom_emi: selectedProduct.emi,
+        custom_bank: selectedProduct.bank,
+        custom_rate: selectedProduct.rate,
+        custom_tenure: selectedProduct.tenure
     };
 
     fetch('/user/api/create-consultation/', {

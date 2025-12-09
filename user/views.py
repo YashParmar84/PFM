@@ -34,7 +34,25 @@ def ai_financial_insights(request):
     average_monthly_income = sum(monthly_income.values()) / len(monthly_income) if monthly_income else 0
     
     # Get available loan products
-    loan_products = LoanProduct.objects.all()
+    # Get available loan products and deduplicate
+    all_products = LoanProduct.objects.all()
+    seen_products = set()
+    loan_products = []
+
+    for product in all_products:
+        # Create a unique key for the product to identify duplicates
+        product_key = (
+            product.model_name,
+            product.bank_name,
+            product.interest_rate,
+            product.price,
+            product.emi,
+            product.tenure_months
+        )
+
+        if product_key not in seen_products:
+            seen_products.add(product_key)
+            loan_products.append(product)
     
     # Get consultation history
     consultations = AIConsultation.objects.filter(user=request.user).order_by('-created_at')[:10]
@@ -379,6 +397,14 @@ def create_consultation(request):
 
             print(f"MONEY: Calculated average income: {average_monthly_income}")
 
+        # Capture custom product data from frontend overrides
+        custom_data = {
+            'emi': data.get('custom_emi'),
+            'bank': data.get('custom_bank'),
+            'rate': data.get('custom_rate'),
+            'tenure': data.get('custom_tenure')
+        }
+        
         # Create consultation data
         consultation_data = {
             'user': request.user,
@@ -390,9 +416,15 @@ def create_consultation(request):
             'affordability_score': 5.0,
         }
 
-        # Store fallback data if this is a fallback product
+        # Store fallback data if this is a fallback product OR if we have custom overrides
         if fallback_data:
+            # Merge custom overrides into fallback data if present
+            if any(custom_data.values()):
+                fallback_data.update({k: v for k, v in custom_data.items() if v is not None})
             consultation_data['fallback_item_data'] = fallback_data
+        elif any(custom_data.values()):
+            # Store custom overrides even for real products
+            consultation_data['fallback_item_data'] = {k: v for k, v in custom_data.items() if v is not None}
 
         try:
             print(f"SEARCH: Creating consultation with selected_item ID: {selected_item.id}")
@@ -566,7 +598,9 @@ def generate_financial_plans_api(request):
         # Generate financial plans
         try:
             print("🚀 DEBUG: Calling generate_financial_plans function")
-            financial_plans = generate_financial_plans(consultation.user_income, selected_item)
+            # Pass custom overrides stored in consultation (e.g. from frontend calculation)
+            custom_overrides = consultation.fallback_item_data
+            financial_plans = generate_financial_plans(consultation.user_income, selected_item, custom_overrides)
             print(f"✅ DEBUG: Generated {len(financial_plans)} plans")
 
             if not financial_plans or len(financial_plans) == 0:
@@ -595,7 +629,7 @@ def generate_financial_plans_api(request):
         traceback.print_exc()
         return JsonResponse({'error': f'Internal server error: {str(e)}'}, status=500)
 
-def generate_financial_plans(average_monthly_income, selected_item):
+def generate_financial_plans(average_monthly_income, selected_item, custom_overrides=None):
     """Generate multiple financial plans for the selected item with different banks and rates"""
     try:
         print("🔧 DEBUG: Starting generate_financial_plans")
@@ -613,90 +647,166 @@ def generate_financial_plans(average_monthly_income, selected_item):
             print(f"❌ DEBUG: Error converting product_price: {e}")
             return None
 
+        plans = []
+        plan_counter = 1
+        
+        # Calculate affordability limit
+        max_affordable_emi = float(average_monthly_income) * 0.20
+        print(f"🔧 DEBUG: Affordability Limit (20% of {average_monthly_income}): {max_affordable_emi}")
+
+        # --- PLAN 1: EXACT MATCH PLAN ---
+        # Use custom overrides if available (from frontend product card), otherwise DB values
+        p1_bank = selected_item.bank_name
+        p1_rate = float(selected_item.interest_rate)
+        p1_tenure = int(selected_item.tenure_months)
+        p1_emi = float(selected_item.emi)
+        
+        if custom_overrides:
+            print(f"🔧 DEBUG: Using custom overrides for Plan 1: {custom_overrides}")
+            p1_bank = custom_overrides.get('bank') or p1_bank
+            p1_rate = float(custom_overrides.get('rate') or p1_rate)
+            p1_tenure = int(custom_overrides.get('tenure') or p1_tenure)
+            p1_emi = float(custom_overrides.get('emi') or p1_emi)
+            
+        # Re-verify/calculate Plan 1 details to ensure consistency
+        # Assuming 20% down payment as standard unless override exists (we don't pass dp override yet)
+        down_payment_percent = 20.0
+        down_payment = product_price * (down_payment_percent / 100.0)
+        loan_amount = product_price - down_payment
+        
+        # Recalculate EMI to be precise or trust the override?
+        # User requested "exact same EMI value". If we trust frontend, we use p1_emi.
+        # However, for the plan description we need totals.
+        # Let's use the override EMI directly if valid.
+        
+        total_repayment = p1_emi * p1_tenure
+        remaining_salary = float(average_monthly_income) - p1_emi
+        total_interest = total_repayment - loan_amount
+        
+        affordability_score = 9.0 if p1_emi <= max_affordable_emi else 5.0 # Basic check
+        
+        plan1_description = f"""Downpayment ₹{down_payment:,.0f}
+Loan Amount ₹{loan_amount:,.0f}
+Tenure {p1_tenure} months
+EMI ₹{p1_emi:.0f}
+Interest Rate {p1_rate}%
+Total Payable ₹{total_repayment:,.0f}"""
+
+        plan_data_1 = {
+            "plan_id": f"plan_{plan_counter}",
+            "name": f"Plan {plan_counter}: {p1_bank} (Selected)",
+            "bank": p1_bank,
+            "tenure_months": int(p1_tenure),
+            "interest_rate": float(p1_rate),
+            "product_cost": float(product_price),
+            "down_payment": float(down_payment),
+            "down_payment_percent": float(down_payment_percent),
+            "loan_amount": float(loan_amount),
+            "emi": float(p1_emi),
+            "total_repayment": float(total_repayment),
+            "remaining_salary": float(remaining_salary),
+            "total_interest": float(total_interest),
+            "affordability_score": float(affordability_score),
+            "plan_description": plan1_description
+        }
+        
+        plans.append(plan_data_1)
+        plan_counter += 1
+        print(f"✅ DEBUG: Plan 1 (Selected) created: {p1_bank} {p1_tenure}m @ {p1_rate}%")
+
+
+        # --- ADDITIONAL 10 PLANS ---
         # Bank configurations with different interest rates
-        bank_options = [
-            {"bank": "State Bank of India (SBI)", "rate": 8.5, "tenure": 48},
-            {"bank": "HDFC Bank", "rate": 9.0, "tenure": 48},
-            {"bank": "ICICI Bank", "rate": 9.5, "tenure": 48},
-            {"bank": "Axis Bank", "rate": 8.75, "tenure": 48},
-            {"bank": "Kotak Mahindra Bank", "rate": 9.25, "tenure": 48}
+        plan_requirements = [
+            (12, 3),  # 3 plans for 12 months
+            (24, 3),  # 3 plans for 24 months
+            (48, 4)   # 4 plans for 48 months
+        ]
+        
+        bank_pool = [
+            {"bank": "State Bank of India (SBI)", "rate": 8.5},
+            {"bank": "HDFC Bank", "rate": 9.0},
+            {"bank": "ICICI Bank", "rate": 9.5},
+            {"bank": "Axis Bank", "rate": 8.75},
+            {"bank": "Kotak Mahindra Bank", "rate": 9.25},
+            {"bank": "Bajaj Finance", "rate": 11.0},
+            {"bank": "IDFC First Bank", "rate": 9.75},
+            {"bank": "Bank of Baroda", "rate": 8.90}
         ]
 
-        plans = []
+        for tenure, count in plan_requirements:
+            plans_for_tenure = 0
+            
+            # Rotate through banks to generate required number of plans for this tenure
+            for i in range(len(bank_pool)):
+                if plans_for_tenure >= count:
+                    break
+                    
+                bank_config = bank_pool[i % len(bank_pool)] # Cycle through banks
+                
+                # Slightly vary rate based on tenure for realism
+                base_rate = bank_config['rate']
+                adjusted_rate = base_rate + (0.5 if tenure > 24 else 0)
+                
+                try:
+                    # Calculate down payment (20% down payment)
+                    down_payment = product_price * (down_payment_percent / 100.0)
+                    loan_amount = product_price - down_payment
 
-        for i, bank_config in enumerate(bank_options):
-            print(f"🔧 DEBUG: Processing plan {i+1} - bank: {bank_config['bank']}, rate: {bank_config['rate']}")
+                    # Calculate EMI
+                    monthly_rate = adjusted_rate / (12.0 * 100.0)
+                    emi_numerator = loan_amount * monthly_rate * (1.0 + monthly_rate)**tenure
+                    emi_denominator = (1.0 + monthly_rate)**tenure - 1.0
 
-            try:
-                # Calculate down payment (assuming 20% down payment)
-                down_payment_percent = 20.0
-                down_payment = product_price * (down_payment_percent / 100.0)
-                loan_amount = product_price - down_payment
+                    if emi_denominator == 0:
+                        continue
 
-                print(f"🔧 DEBUG: Plan {i+1} - product_price: {product_price}, down_payment: {down_payment}, loan_amount: {loan_amount}")
+                    emi = emi_numerator / emi_denominator
+                    
+                    # STRICT AFFORDABILITY FILTER: EMI must be <= 20% of income
+                    if emi > max_affordable_emi:
+                        # Skip this plan if unaffordable
+                        continue
 
-                # Calculate EMI using formula: EMI = P * r * (1+r)^n / ((1+r)^n - 1)
-                interest_rate = bank_config['rate']
-                tenure = bank_config['tenure']
-                monthly_rate = interest_rate / (12.0 * 100.0)  # Monthly interest rate
-                emi_numerator = loan_amount * monthly_rate * (1.0 + monthly_rate)**tenure
-                emi_denominator = (1.0 + monthly_rate)**tenure - 1.0
+                    # Calculate totals
+                    total_repayment = emi * tenure
+                    remaining_salary = float(average_monthly_income) - emi
+                    total_interest = total_repayment - loan_amount
+                    
+                    affordability_score = 9.0
 
-                if emi_denominator == 0:
-                    print(f"❌ DEBUG: Division by zero in EMI calculation for plan {i+1}")
-                    continue
-
-                emi = emi_numerator / emi_denominator
-
-                # Calculate total repayment
-                total_repayment = emi * tenure
-
-                # Calculate remaining salary after EMI
-                remaining_salary = float(average_monthly_income) - emi
-
-                print(f"🔧 DEBUG: Plan {i+1} - emi: {emi}, total_repayment: {total_repayment}, remaining_salary: {remaining_salary}")
-
-                # Calculate total interest
-                total_interest = total_repayment - loan_amount
-
-                # Calculate affordability score (ensure float comparison)
-                avg_income_float = float(average_monthly_income)
-                affordability_score = 9.0 if remaining_salary > avg_income_float * 0.7 else 7.0 if remaining_salary > avg_income_float * 0.6 else 5.0
-
-                # Format plan using the new template format
-                plan_description = f"""Downpayment ₹{down_payment:,.0f}
+                    plan_description = f"""Downpayment ₹{down_payment:,.0f}
 Loan Amount ₹{loan_amount:,.0f}
 Tenure {tenure} months
 EMI ₹{emi:.0f}
-Interest Rate {interest_rate}%
+Interest Rate {adjusted_rate}%
 Total Payable ₹{total_repayment:,.0f}"""
 
-                plan_data = {
-                    "plan_id": f"plan_{i+1}",
-                    "name": f"Plan {i+1}: {bank_config['bank']} - {interest_rate}%",
-                    "bank": bank_config['bank'],
-                    "tenure_months": int(tenure),
-                    "interest_rate": float(interest_rate),
-                    "product_cost": float(product_price),
-                    "down_payment": float(down_payment),
-                    "down_payment_percent": float(down_payment_percent),
-                    "loan_amount": float(loan_amount),
-                    "emi": float(emi),
-                    "total_repayment": float(total_repayment),
-                    "remaining_salary": float(remaining_salary),
-                    "total_interest": float(total_interest),
-                    "affordability_score": float(affordability_score),
-                    "plan_description": plan_description
-                }
+                    plan_data = {
+                        "plan_id": f"plan_{plan_counter}",
+                        "name": f"Plan {plan_counter}: {bank_config['bank']} ({tenure}m)",
+                        "bank": bank_config['bank'],
+                        "tenure_months": int(tenure),
+                        "interest_rate": float(adjusted_rate),
+                        "product_cost": float(product_price),
+                        "down_payment": float(down_payment),
+                        "down_payment_percent": float(down_payment_percent),
+                        "loan_amount": float(loan_amount),
+                        "emi": float(emi),
+                        "total_repayment": float(total_repayment),
+                        "remaining_salary": float(remaining_salary),
+                        "total_interest": float(total_interest),
+                        "affordability_score": float(affordability_score),
+                        "plan_description": plan_description
+                    }
 
-                plans.append(plan_data)
-                print(f"✅ DEBUG: Plan {i+1} created successfully")
-
-            except Exception as plan_error:
-                print(f"❌ DEBUG: Error creating plan {i+1}: {plan_error}")
-                import traceback
-                traceback.print_exc()
-                continue
+                    plans.append(plan_data)
+                    plans_for_tenure += 1
+                    plan_counter += 1
+                    
+                except Exception as plan_error:
+                    print(f"❌ DEBUG: Error creating plan: {plan_error}")
+                    continue
 
         print(f"✅ DEBUG: Generated {len(plans)} plans successfully")
         return plans
@@ -751,19 +861,17 @@ def generate_ai_response(user_message, average_monthly_income, selected_item, mo
             income = average_monthly_income
 
             emi_ratio = (emi / income) * 100 if income > 0 else 999
-
+            
+            # STRICT RULE: Max EMI is 20% of income
             if emi_ratio <= 20:
                 affordability_score = 9.0
-                risk_assessment = "Excellent – This EMI is very comfortable for your income."
+                risk_assessment = "Excellent – This EMI is within the 20% safe limit of your income."
             elif emi_ratio <= 30:
-                affordability_score = 7.5
-                risk_assessment = "Good – EMI is manageable but monitor your expenses."
-            elif emi_ratio <= 40:
                 affordability_score = 5.0
-                risk_assessment = "Caution – EMI may strain your finances. Consider bigger tenure."
+                risk_assessment = "Caution – EMI exceeds the strict 20% limit. Not recommended."
             else:
                 affordability_score = 2.0
-                risk_assessment = "High Risk – EMI exceeds 40% of income. Not advisable."
+                risk_assessment = "High Risk – EMI exceeds safe limits. Highly inadvisable."
 
             # Recommend alternative banks - check if it's a fallback item
             try:
@@ -1267,8 +1375,27 @@ def edit_transaction(request, transaction_id):
 @login_required
 def delete_transaction(request, transaction_id):
     """Delete transaction view"""
-    # Transaction deletion logic here
-    pass
+    from django.contrib import messages
+    from user.models import Transaction, UserActivity
+    
+    transaction = get_object_or_404(Transaction, id=transaction_id, user=request.user)
+    
+    if request.method == 'POST' or request.method == 'GET':
+        # Create activity record
+        try:
+            UserActivity.objects.create(
+                user=request.user,
+                activity_type='delete_transaction',
+                description=f"Deleted {transaction.get_category_display()} transaction of Rs.{transaction.amount}",
+                metadata={'amount': float(transaction.amount), 'category': transaction.category}
+            )
+        except Exception as e:
+            print(f"Error creating activity: {e}")
+            
+        transaction.delete()
+        messages.success(request, 'Transaction deleted successfully!')
+        
+    return redirect('user:transaction_list')
 
 
 @login_required

@@ -545,33 +545,72 @@ class SpecializedFinancialChatbot:
             else:
                 avg_income = sum(income_history) / len(income_history)
 
+        base_rate = self.fallback_rates.get('personal_loan', 10.0)
         rates = self._get_fallback_rates('personal_loan')
-        selected_rate = min(rates, key=lambda x: x['rate']) if rates else {'bank': 'Bank', 'rate': 10.0}
+        extra_bank_rates = [
+            {'bank': b['name'], 'rate': round(base_rate + b['rate_adjustment'], 2)}
+            for b in self.bank_options
+        ]
+        additional_banks = [
+            {'bank': 'Bank of Baroda', 'rate': base_rate + 0.10},
+            {'bank': 'Punjab National Bank', 'rate': base_rate + 0.05},
+            {'bank': 'Union Bank', 'rate': base_rate + 0.12},
+            {'bank': 'IDFC First Bank', 'rate': base_rate + 0.35},
+            {'bank': 'IndusInd Bank', 'rate': base_rate + 0.30},
+            {'bank': 'Yes Bank', 'rate': base_rate + 0.25}
+        ]
+        all_rates = rates + extra_bank_rates + additional_banks
+        # Deduplicate by bank name
+        seen = set()
+        unique_rates = []
+        for rt in all_rates:
+            name = rt['bank']
+            name_norm = re.sub(r"\s+bank$", "", name.strip(), flags=re.I)
+            if name_norm not in seen:
+                seen.add(name_norm)
+                unique_rates.append({'bank': name_norm if name_norm else name, 'rate': round(rt['rate'], 2)})
 
         emi_cap = avg_income * 0.30 if avg_income > 0 else 0
-        tenures = [12, 24, 36]
+        selected_best = min(unique_rates, key=lambda x: x['rate']) if unique_rates else {'bank': 'Bank', 'rate': base_rate}
         plans = []
-        r = selected_rate['rate'] / (12 * 100)
-        for n in tenures:
-            if emi_cap > 0:
-                num = (1 + r) ** n - 1
-                den = r * (1 + r) ** n
+
+        # Generate multiple affordable plans per bank with varied amounts and tenures
+        for rt in unique_rates:
+            r = rt['rate'] / (12 * 100)
+            for tenure in [24, 36, 48]:
+                if emi_cap <= 0:
+                    continue
+                num = (1 + r) ** tenure - 1
+                den = r * (1 + r) ** tenure
                 principal_max = emi_cap * (num / den)
-                amount = max(0, principal_max)
-                rounded_amount = math.floor(amount / 5000) * 5000
-                emi = self.calculate_emi(rounded_amount, selected_rate['rate'], n)
-                if emi <= emi_cap and rounded_amount > 0:
-                    plans.append({'amount': rounded_amount, 'tenure': n, 'emi': emi})
+                if principal_max <= 0:
+                    continue
+                # Propose 2 amounts per bank-tenure: 60% and 90% of max principal
+                for factor in [0.6, 0.9]:
+                    amount = principal_max * factor
+                    rounded_amount = math.floor(amount / 10000) * 10000
+                    if rounded_amount <= 0:
+                        continue
+                    emi_val = self.calculate_emi(rounded_amount, rt['rate'], tenure)
+                    if emi_val <= emi_cap:
+                        plans.append({
+                            'bank': rt['bank'],
+                            'rate': rt['rate'],
+                            'amount': rounded_amount,
+                            'tenure': tenure,
+                            'emi': emi_val
+                        })
 
-        if not plans and avg_income > 0:
-            for n in [24, 36, 48]:
-                base_amount = avg_income * 6
-                rounded_amount = math.floor(base_amount / 5000) * 5000
-                emi = self.calculate_emi(rounded_amount, selected_rate['rate'], n)
-                if emi <= emi_cap and rounded_amount > 0:
-                    plans.append({'amount': rounded_amount, 'tenure': n, 'emi': emi})
-
-        plans = sorted(plans, key=lambda x: (x['tenure'], -x['amount']))[:3]
+        # Ensure unique (bank, amount) pairs and at least 10 suggestions
+        unique_pairs = {}
+        for p in plans:
+            key = (p['bank'], p['amount'])
+            if key not in unique_pairs:
+                unique_pairs[key] = p
+        plans = list(unique_pairs.values())
+        # Sort by EMI ascending then tenure
+        plans.sort(key=lambda x: (x['emi'], x['tenure']))
+        plans = plans[:10]
 
         low_income_note = ""
         if avg_income and avg_income < 25000:
@@ -593,10 +632,10 @@ class SpecializedFinancialChatbot:
             if loan_amt > 0:
                 details = []
                 for n in [12, 24, 36]:
-                    emi_v = self.calculate_emi(loan_amt, selected_rate['rate'], n)
+                    emi_v = self.calculate_emi(loan_amt, selected_best['rate'], n)
                     ok = emi_v <= emi_cap if emi_cap > 0 else False
                     details.append((n, emi_v, ok))
-                msg = f"{greeting}\n\nEMI estimates for ₹{loan_amt:,.0f} at {selected_rate['rate']}%:"
+                msg = f"{greeting}\n\nEMI estimates for ₹{loan_amt:,.0f} at {selected_best['rate']}%:"
                 for n, e, ok in details:
                     msg += f"\n• {n} months: ₹{e:,.0f} {'(affordable)' if ok else '(high vs income)'}"
                 if emi_cap > 0:
@@ -612,18 +651,30 @@ class SpecializedFinancialChatbot:
             return {'message': msg, 'show_greeting': True}
 
         if plans:
-            lines = [f"{greeting}", f"Based on your income, here are supported personal-loan plans (Bank: {selected_rate['bank']}, Rate: {selected_rate['rate']}%):"]
-            for p in plans:
-                lines.append(f"• Amount: ₹{p['amount']:,.0f}, Tenure: {p['tenure']} months, Approx EMI: ₹{p['emi']:,.0f}")
+            lines = [
+                f"{greeting}",
+                "",
+                "Based on your income, here are 10 affordable personal-loan plans:",
+            ]
+            for idx, p in enumerate(plans, start=1):
+                total_payable = p['emi'] * p['tenure']
+                lines.append(f"Plan {idx}: {p['bank']} - {p['rate']:.2f}%")
+                lines.append(f"Downpayment     \t ₹0")
+                lines.append(f"Loan Amount     \t ₹{p['amount']:,.0f}")
+                lines.append(f"Tenure          \t {p['tenure']} months")
+                lines.append(f"EMI             \t ₹{p['emi']:,.0f}")
+                lines.append(f"Interest Rate   \t {p['rate']:.2f}%")
+                lines.append(f"Total Payable   \t ₹{total_payable:,.0f}")
+                lines.append("")
             if emi_cap > 0:
-                lines.append(f"\nEMI cap used: ₹{emi_cap:,.0f} (30% of your average monthly income).")
+                lines.append(f"EMI cap used: ₹{emi_cap:,.0f} (30% of your average monthly income).")
             if low_income_note:
                 lines.append(low_income_note)
             return {'message': "\n".join(lines), 'show_greeting': True}
 
         msg = f"{greeting}\n\nI could not find a safe plan within your income profile. Consider a smaller loan amount or longer tenure to reduce EMI."
-        if rates:
-            msg += f"\nCurrent indicative rate: {selected_rate['rate']}% ({selected_rate['bank']})."
+        if unique_rates:
+            msg += f"\nCurrent indicative rate: {selected_best['rate']}% ({selected_best['bank']})."
         return {'message': msg, 'show_greeting': True}
 
     def _handle_product_inquiry(self, message: str, category: str, user_context: Dict) -> Dict:
