@@ -375,6 +375,9 @@ class SpecializedFinancialChatbot:
         greeting_words = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening', 'greetings']
         is_greeting = any(word in message_lower for word in greeting_words) and len(message_lower.split()) <= 5
 
+        if any(k in message_lower for k in self.product_keywords.get('personal_loan', [])):
+            return self._handle_personal_loan_inquiry(message, user_context)
+
         # Check if this is a direct product name mention (like "Kia Sonet") - EXTENDED CHECK
         direct_product_info = self._detect_direct_product_name(message)
         is_direct_product_ask = bool(direct_product_info) or self._contains_product_keywords(message) or any(word in message_lower for word in ['pricing', 'cost', 'rate', 'loan for'])
@@ -531,6 +534,97 @@ class SpecializedFinancialChatbot:
         message_lower = message.lower()
         product_indicators = ['want to buy', 'buy', 'purchase', 'get', 'loan for', 'finance', 'emi for']
         return any(indicator in message_lower for indicator in product_indicators)
+
+    def _handle_personal_loan_inquiry(self, message: str, user_context: Dict) -> Dict:
+        greeting = "Hello! How can I help you today?"
+        income_history = user_context.get('income_history', [])
+        avg_income = 0.0
+        if income_history:
+            if len(income_history) >= 6:
+                avg_income = sum(income_history[-6:]) / 6
+            else:
+                avg_income = sum(income_history) / len(income_history)
+
+        rates = self._get_fallback_rates('personal_loan')
+        selected_rate = min(rates, key=lambda x: x['rate']) if rates else {'bank': 'Bank', 'rate': 10.0}
+
+        emi_cap = avg_income * 0.30 if avg_income > 0 else 0
+        tenures = [12, 24, 36]
+        plans = []
+        r = selected_rate['rate'] / (12 * 100)
+        for n in tenures:
+            if emi_cap > 0:
+                num = (1 + r) ** n - 1
+                den = r * (1 + r) ** n
+                principal_max = emi_cap * (num / den)
+                amount = max(0, principal_max)
+                rounded_amount = math.floor(amount / 5000) * 5000
+                emi = self.calculate_emi(rounded_amount, selected_rate['rate'], n)
+                if emi <= emi_cap and rounded_amount > 0:
+                    plans.append({'amount': rounded_amount, 'tenure': n, 'emi': emi})
+
+        if not plans and avg_income > 0:
+            for n in [24, 36, 48]:
+                base_amount = avg_income * 6
+                rounded_amount = math.floor(base_amount / 5000) * 5000
+                emi = self.calculate_emi(rounded_amount, selected_rate['rate'], n)
+                if emi <= emi_cap and rounded_amount > 0:
+                    plans.append({'amount': rounded_amount, 'tenure': n, 'emi': emi})
+
+        plans = sorted(plans, key=lambda x: (x['tenure'], -x['amount']))[:3]
+
+        low_income_note = ""
+        if avg_income and avg_income < 25000:
+            low_income_note = "\nSafety tip: Consider smaller loan amounts and longer tenure to keep EMI manageable."
+
+        specific = message.lower()
+        if any(k in specific for k in ['interest rate', 'rates']):
+            resp = f"{greeting}\n\nPersonal loan interest rates:"
+            for rt in rates[:3]:
+                resp += f"\n• {rt['bank']}: {rt['rate']}%"
+            return {'message': resp, 'show_greeting': True}
+
+        amt_match = re.search(r'(\d[\d,]*)\s*(?:rs|inr|₹|rupees|amount|loan)', specific)
+        if any(k in specific for k in ['emi']) and amt_match:
+            try:
+                loan_amt = float(amt_match.group(1).replace(',', ''))
+            except Exception:
+                loan_amt = 0
+            if loan_amt > 0:
+                details = []
+                for n in [12, 24, 36]:
+                    emi_v = self.calculate_emi(loan_amt, selected_rate['rate'], n)
+                    ok = emi_v <= emi_cap if emi_cap > 0 else False
+                    details.append((n, emi_v, ok))
+                msg = f"{greeting}\n\nEMI estimates for ₹{loan_amt:,.0f} at {selected_rate['rate']}%:"
+                for n, e, ok in details:
+                    msg += f"\n• {n} months: ₹{e:,.0f} {'(affordable)' if ok else '(high vs income)'}"
+                if emi_cap > 0:
+                    msg += f"\n\nRecommended EMI should be ≤ ₹{emi_cap:,.0f} (30% of your average monthly income)."
+                return {'message': msg, 'show_greeting': True}
+
+        if any(k in specific for k in ['eligibility']):
+            msg = f"{greeting}\n\nEligibility is assessed against your income. Plans below keep EMI ≤ 30% of your average monthly income. Bank may also check credit score and obligations."
+            return {'message': msg, 'show_greeting': True}
+
+        if any(k in specific for k in ['document', 'documents', 'doc']):
+            msg = f"{greeting}\n\nCommon documents: ID (PAN/Aadhaar), address proof, income proof (salary slips/bank statements), and bank account details."
+            return {'message': msg, 'show_greeting': True}
+
+        if plans:
+            lines = [f"{greeting}", f"Based on your income, here are supported personal-loan plans (Bank: {selected_rate['bank']}, Rate: {selected_rate['rate']}%):"]
+            for p in plans:
+                lines.append(f"• Amount: ₹{p['amount']:,.0f}, Tenure: {p['tenure']} months, Approx EMI: ₹{p['emi']:,.0f}")
+            if emi_cap > 0:
+                lines.append(f"\nEMI cap used: ₹{emi_cap:,.0f} (30% of your average monthly income).")
+            if low_income_note:
+                lines.append(low_income_note)
+            return {'message': "\n".join(lines), 'show_greeting': True}
+
+        msg = f"{greeting}\n\nI could not find a safe plan within your income profile. Consider a smaller loan amount or longer tenure to reduce EMI."
+        if rates:
+            msg += f"\nCurrent indicative rate: {selected_rate['rate']}% ({selected_rate['bank']})."
+        return {'message': msg, 'show_greeting': True}
 
     def _handle_product_inquiry(self, message: str, category: str, user_context: Dict) -> Dict:
         """Handle product-specific inquiries following the structured flow with immediate analysis after selection"""
